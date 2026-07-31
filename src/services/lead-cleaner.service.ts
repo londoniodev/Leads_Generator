@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { LeadStatus } from '@prisma/client';
 import { normalizePhoneE164 } from '../utils/phone.util.js';
 import { sanitizeEmail } from '../utils/email.util.js';
@@ -17,6 +18,7 @@ export interface RawLeadData {
 }
 
 export interface CleanedLeadData {
+  leadHash: string;
   companyName: string;
   niche: string;
   city: string | null;
@@ -31,6 +33,16 @@ export interface CleanedLeadData {
 }
 
 /**
+ * Función pura que genera un Hash MD5 determinista a partir del website y teléfono E.164.
+ */
+export function generateLeadHash(website: string | null, phoneE164: string | null): string {
+  const cleanWebsite = (website || '').trim().toLowerCase();
+  const cleanPhone = (phoneE164 || '').trim();
+  const rawString = `${cleanWebsite}|${cleanPhone}`;
+  return createHash('md5').update(rawString).digest('hex');
+}
+
+/**
  * Normaliza el dominio de un sitio web.
  */
 export function normalizeWebsiteUrl(rawUrl?: string | null): string | null {
@@ -41,7 +53,6 @@ export function normalizeWebsiteUrl(rawUrl?: string | null): string | null {
   }
   try {
     const urlObj = new URL(clean);
-    // Retornar formato estándar https://dominio.com sin slash final
     return `${urlObj.protocol}//${urlObj.hostname}`.replace(/\/$/, '');
   } catch {
     return null;
@@ -49,7 +60,7 @@ export function normalizeWebsiteUrl(rawUrl?: string | null): string | null {
 }
 
 /**
- * Limpia y normaliza la información de un Lead crudo.
+ * Limpia y normaliza la información de un Lead crudo generando su leadHash determinista.
  */
 export function cleanLeadData(raw: RawLeadData): CleanedLeadData {
   const companyName = raw.companyName.trim();
@@ -61,6 +72,9 @@ export function cleanLeadData(raw: RawLeadData): CleanedLeadData {
   const website = normalizeWebsiteUrl(raw.website);
   const phoneE164 = normalizePhoneE164(raw.phone);
   const primaryEmail = sanitizeEmail(raw.primaryEmail);
+
+  // Generar Hash Determinista
+  const leadHash = generateLeadHash(website, phoneE164);
 
   // Combinar redes sociales recibidas y encontradas en URLs escaneadas
   const allUrls = [...(raw.foundUrls || [])];
@@ -81,7 +95,7 @@ export function cleanLeadData(raw: RawLeadData): CleanedLeadData {
   if (website) score += 20;
   if (phoneE164) score += 25;
   if (primaryEmail) score += 25;
-  score += Math.min(socialProfiles.length * 10, 20); // Máximo 20 pts por redes sociales
+  score += Math.min(socialProfiles.length * 10, 20);
 
   // Determinar status inicial
   let status: LeadStatus = LeadStatus.NEW;
@@ -90,6 +104,7 @@ export function cleanLeadData(raw: RawLeadData): CleanedLeadData {
   }
 
   return {
+    leadHash,
     companyName,
     niche,
     city,
@@ -102,4 +117,22 @@ export function cleanLeadData(raw: RawLeadData): CleanedLeadData {
     status,
     score
   };
+}
+
+/**
+ * Servicio de Limpieza con métodos estáticos para inversión de control.
+ */
+export class LeadCleanerService {
+  public static prepareLeadData(
+    raw: RawLeadData,
+    scraped?: { emails?: string[]; phones?: string[]; socials?: ExtractedSocial[] } | null
+  ): CleanedLeadData {
+    return cleanLeadData({
+      ...raw,
+      primaryEmail: raw.primaryEmail || scraped?.emails?.[0],
+      phone: raw.phone || scraped?.phones?.[0],
+      foundUrls: scraped?.socials?.map(s => s.url) || [],
+      socials: scraped?.socials || [],
+    });
+  }
 }

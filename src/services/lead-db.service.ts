@@ -2,67 +2,43 @@ import { Lead } from '@prisma/client';
 import prisma from '../config/database.js';
 import { CleanedLeadData } from './lead-cleaner.service.js';
 
+/**
+ * Guarda o actualiza un Lead utilizando el leadHash determinista con Prisma upsert.
+ */
 export async function saveOrUpdateLead(cleanedData: CleanedLeadData): Promise<Lead> {
-  const { website, phoneE164, socialProfiles, ...leadBase } = cleanedData;
+  const { leadHash, website, phoneE164, socialProfiles, ...leadBase } = cleanedData;
 
-  let existingLead: Lead | null = null;
+  // Realizar Upsert atómico por leadHash
+  const lead = await prisma.lead.upsert({
+    where: { leadHash },
+    update: {
+      companyName: leadBase.companyName,
+      niche: leadBase.niche,
+      city: leadBase.city,
+      country: leadBase.country,
+      address: leadBase.address,
+      website,
+      phoneE164,
+      primaryEmail: leadBase.primaryEmail,
+      status: leadBase.status,
+      score: leadBase.score,
+    },
+    create: {
+      leadHash,
+      companyName: leadBase.companyName,
+      niche: leadBase.niche,
+      city: leadBase.city,
+      country: leadBase.country,
+      address: leadBase.address,
+      website,
+      phoneE164,
+      primaryEmail: leadBase.primaryEmail,
+      status: leadBase.status,
+      score: leadBase.score,
+    },
+  });
 
-  // 1. Intentar buscar por la clave única compuesta si ambos campos existen
-  if (website && phoneE164) {
-    existingLead = await prisma.lead.findUnique({
-      where: {
-        website_phoneE164: {
-          website,
-          phoneE164,
-        },
-      },
-    });
-  }
-
-  // 2. Si no se encontró por clave compuesta, buscar de forma blanda por website o teléfono E.164
-  if (!existingLead && website) {
-    existingLead = await prisma.lead.findFirst({
-      where: { website },
-    });
-  }
-
-  if (!existingLead && phoneE164) {
-    existingLead = await prisma.lead.findFirst({
-      where: { phoneE164 },
-    });
-  }
-
-  let lead: Lead;
-
-  if (existingLead) {
-    // Actualizar Lead existente enriqueciendo campos si estaban vacíos
-    lead = await prisma.lead.update({
-      where: { id: existingLead.id },
-      data: {
-        companyName: leadBase.companyName || existingLead.companyName,
-        niche: leadBase.niche || existingLead.niche,
-        city: leadBase.city || existingLead.city,
-        country: leadBase.country || existingLead.country,
-        address: leadBase.address || existingLead.address,
-        website: website || existingLead.website,
-        phoneE164: phoneE164 || existingLead.phoneE164,
-        primaryEmail: leadBase.primaryEmail || existingLead.primaryEmail,
-        status: leadBase.status,
-        score: Math.max(existingLead.score, leadBase.score),
-      },
-    });
-  } else {
-    // Crear nuevo Lead
-    lead = await prisma.lead.create({
-      data: {
-        ...leadBase,
-        website,
-        phoneE164,
-      },
-    });
-  }
-
-  // 3. Insertar o vincular Perfiles de Redes Sociales
+  // Vincular Perfiles de Redes Sociales de forma segura
   for (const profile of socialProfiles) {
     const existingProfile = await prisma.socialProfile.findFirst({
       where: {
@@ -85,4 +61,13 @@ export async function saveOrUpdateLead(cleanedData: CleanedLeadData): Promise<Le
   }
 
   return lead;
+}
+
+/**
+ * Clase LeadDbService para Inversión de Control (IoC).
+ */
+export class LeadDbService {
+  public static async saveOrUpdateLead(cleanedData: CleanedLeadData): Promise<Lead> {
+    return saveOrUpdateLead(cleanedData);
+  }
 }

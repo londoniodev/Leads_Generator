@@ -1,10 +1,14 @@
 import { parsePhoneNumberWithError, CountryCode } from 'libphonenumber-js';
+import env from '../config/env.config.js';
 
 /**
  * Normaliza cualquier número de teléfono al formato internacional E.164 (ej: +573001234567).
  * Retorna null si el teléfono no es válido.
  */
-export function normalizePhoneE164(rawPhone: string | null | undefined, defaultCountry: CountryCode = 'US'): string | null {
+export function normalizePhoneE164(
+  rawPhone: string | null | undefined,
+  defaultCountry: CountryCode = env.DEFAULT_REGION_CODE as CountryCode
+): string | null {
   if (!rawPhone) return null;
 
   // Limpiar caracteres ruidosos iniciales

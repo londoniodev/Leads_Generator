@@ -1,4 +1,5 @@
-import { CheerioCrawler, PlaywrightCrawler, RequestQueue } from 'crawlee';
+import { CheerioCrawler, PlaywrightCrawler } from 'crawlee';
+import env from '../config/env.config.js';
 import { extractEmails } from '../utils/email.util.js';
 import { extractSocialProfiles, ExtractedSocial } from '../utils/social.util.js';
 
@@ -13,25 +14,48 @@ export interface ScrapedWebsiteData {
 
 export class WebsiteEnricherCrawler {
   /**
+   * Método reutilizable (DRY) para extraer correos, redes sociales y números de teléfono de contenido HTML/Texto.
+   */
+  private extractDataFromHTML(html: string, text: string, links: string[]): {
+    emails: string[];
+    phones: string[];
+    socials: ExtractedSocial[];
+  } {
+    // 1. Correos
+    const emails = extractEmails(html);
+
+    // 2. Redes Sociales
+    const socials = extractSocialProfiles(links);
+
+    // 3. Teléfonos vía expresión regular
+    const phoneRegex = /(\+?\d{1,4}[-.\s]?)?\(?\d{2,5}\)?[-.\s]?\d{3,5}[-.\s]?\d{3,5}/g;
+    const rawPhones = text.match(phoneRegex) || [];
+    const phones = Array.from(new Set(rawPhones.map(p => p.trim()))).slice(0, 5);
+
+    return { emails, phones, socials };
+  }
+
+  /**
    * Extrae teléfonos, emails y redes sociales de una página o lista de URLs con fallback a Playwright.
    */
   public async enrichWebsites(urls: string[]): Promise<Map<string, ScrapedWebsiteData>> {
     const results = new Map<string, ScrapedWebsiteData>();
     const failedForPlaywrightFallback: string[] = [];
+    const self = this;
 
-    console.log(`[Crawler Engine] Iniciando extracción estática con CheerioCrawler para ${urls.length} URLs...`);
+    console.log(`[Crawler Engine] Iniciando CheerioCrawler (Max concurrency: ${env.CRAWLER_MAX_CONCURRENCY})...`);
 
     const cheerioCrawler = new CheerioCrawler({
-      maxConcurrency: 5,
-      requestHandlerTimeoutSecs: 15,
+      maxConcurrency: env.CRAWLER_MAX_CONCURRENCY,
+      requestHandlerTimeoutSecs: env.CRAWLER_TIMEOUT_SECS,
       maxRequestRetries: 1,
 
       async requestHandler({ request, $, response }) {
         const statusCode = response.statusCode;
 
-        // Si la respuesta es 403 Forbidden o 401 Unauthorized, forzar fallback a Playwright
-        if (statusCode === 403 || statusCode === 401) {
-          console.warn(`[CheerioCrawler] Bloqueo HTTP ${statusCode} detectado en: ${request.url}. Marrando para fallback Playwright...`);
+        // Evaluar códigos de estado para activar fallback leyendo de env
+        if (statusCode && env.FALLBACK_HTTP_CODES.includes(statusCode)) {
+          console.warn(`[CheerioCrawler] Bloqueo HTTP ${statusCode} en ${request.url}. Marcando para fallback Playwright...`);
           failedForPlaywrightFallback.push(request.url);
           return;
         }
@@ -40,35 +64,26 @@ export class WebsiteEnricherCrawler {
         const text = $('body').text();
         const title = $('title').text().trim();
 
-        // Extraer correos
-        const emails = extractEmails(html);
-
-        // Extraer enlaces a redes sociales
         const pageLinks: string[] = [];
         $('a[href]').each((_, el) => {
           const href = $(el).attr('href');
           if (href) pageLinks.push(href);
         });
 
-        const socials = extractSocialProfiles(pageLinks);
-
-        // Extraer posibles teléfonos
-        const phoneRegex = /(\+?\d{1,4}[-.\s]?)?\(?\d{2,5}\)?[-.\s]?\d{3,5}[-.\s]?\d{3,5}/g;
-        const rawPhones = text.match(phoneRegex) || [];
-        const phones = Array.from(new Set(rawPhones.map(p => p.trim()))).slice(0, 5);
+        // Aplicar método DRY de extracción
+        const extracted = self.extractDataFromHTML(html, text, pageLinks);
 
         results.set(request.url, {
           url: request.url,
-          emails,
-          phones,
-          socials,
+          ...extracted,
           title,
           crawlerUsed: 'Cheerio',
         });
       },
 
       async failedRequestHandler({ request, error }) {
-        console.warn(`[CheerioCrawler] Error accediendo a ${request.url}: ${error.message}. Programando fallback a Playwright.`);
+        const errMsg = error instanceof Error ? error.message : String(error);
+        console.warn(`[CheerioCrawler] Error accediendo a ${request.url}: ${errMsg}. Programando fallback a Playwright.`);
         if (!failedForPlaywrightFallback.includes(request.url)) {
           failedForPlaywrightFallback.push(request.url);
         }
@@ -77,13 +92,13 @@ export class WebsiteEnricherCrawler {
 
     await cheerioCrawler.run(urls);
 
-    // Fallback con Playwright para URLs que dieron 403/401 o fallaron
+    // Fallback con Playwright para URLs bloqueadas o fallidas
     if (failedForPlaywrightFallback.length > 0) {
-      console.log(`[Crawler Engine] ⚠️ Ejecutando PlaywrightCrawler (Headless Browser) para ${failedForPlaywrightFallback.length} URLs con bloqueos...`);
+      console.log(`[Crawler Engine] ⚠️ Ejecutando PlaywrightCrawler (Timeout: ${env.PLAYWRIGHT_TIMEOUT_SECS}s) para ${failedForPlaywrightFallback.length} URLs...`);
 
       const playwrightCrawler = new PlaywrightCrawler({
-        maxConcurrency: 2,
-        requestHandlerTimeoutSecs: 30,
+        maxConcurrency: Math.max(1, Math.floor(env.CRAWLER_MAX_CONCURRENCY / 2)),
+        requestHandlerTimeoutSecs: env.PLAYWRIGHT_TIMEOUT_SECS,
         headless: true,
 
         async requestHandler({ request, page }) {
@@ -91,29 +106,26 @@ export class WebsiteEnricherCrawler {
           const content = await page.content();
           const bodyText = await page.locator('body').innerText().catch(() => '');
 
-          const emails = extractEmails(content);
+          const hrefs = await page.$$eval('a[href]', elements =>
+            elements.map(e => e.getAttribute('href')).filter((h): h is string => Boolean(h))
+          );
 
-          const hrefs = await page.$$eval('a[href]', elements => elements.map(e => e.getAttribute('href')).filter((h): h is string => Boolean(h)));
-          const socials = extractSocialProfiles(hrefs);
-
-          const phoneRegex = /(\+?\d{1,4}[-.\s]?)?\(?\d{2,5}\)?[-.\s]?\d{3,5}[-.\s]?\d{3,5}/g;
-          const rawPhones = bodyText.match(phoneRegex) || [];
-          const phones = Array.from(new Set(rawPhones.map(p => p.trim()))).slice(0, 5);
+          // Aplicar método DRY de extracción
+          const extracted = self.extractDataFromHTML(content, bodyText, hrefs);
 
           results.set(request.url, {
             url: request.url,
-            emails,
-            phones,
-            socials,
+            ...extracted,
             title,
             crawlerUsed: 'Playwright',
           });
 
-          console.log(`[PlaywrightCrawler] Exito extrayendo con navegador completo: ${request.url}`);
+          console.log(`[PlaywrightCrawler] Éxito extrayendo con navegador completo: ${request.url}`);
         },
 
         async failedRequestHandler({ request, error }) {
-          console.error(`[PlaywrightCrawler] Error definitivo al extraer ${request.url}:`, error.message);
+          const errMsg = error instanceof Error ? error.message : String(error);
+          console.error(`[PlaywrightCrawler] Error definitivo al extraer ${request.url}:`, errMsg);
         },
       });
 

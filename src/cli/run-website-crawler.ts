@@ -1,71 +1,89 @@
 import { WebsiteEnricherCrawler } from '../crawlers/website-enricher.crawler.js';
-import { cleanLeadData } from '../services/lead-cleaner.service.js';
-import { saveOrUpdateLead } from '../services/lead-db.service.js';
+import { LeadCleanerService, RawLeadData } from '../services/lead-cleaner.service.js';
+import { LeadDbService } from '../services/lead-db.service.js';
 import prisma from '../config/database.js';
 
-async function main() {
-  console.log('=== MOTOR B2B LEAD GENERATOR & ENRICHER (CLI) ===\n');
+/**
+ * Orquestador Central del Pipeline de Generación y Enriquecimiento de Leads (IoC).
+ */
+async function bootstrap() {
+  console.log('==================================================');
+  console.log('🚀 PIPELINE ORQUESTADOR B2B LEAD GENERATOR');
+  console.log('==================================================\n');
 
-  // Datos de entrada de prueba (o pasados por CLI)
-  const inputLeads = [
-    {
-      companyName: 'Acme Dental Studio',
-      niche: 'Clínicas Odontológicas',
-      city: 'Madrid',
-      country: 'España',
-      website: 'https://example.com',
-      phone: '+34 912 34 56 78',
-      primaryEmail: 'info@acmedental.com',
-    },
-    {
-      companyName: 'Gourmet Bistro Bar',
-      niche: 'Restaurantes',
-      city: 'Bogotá',
-      country: 'Colombia',
-      website: 'https://httpbin.org/html', // URL estática para test de scraping
-      phone: '300 123 4567',
-    },
-  ];
+  try {
+    // 1. Mock de Entrada (Simulando respuesta de Google Maps / Apify)
+    const rawLeads: RawLeadData[] = [
+      {
+        companyName: 'Acme Dental Studio',
+        niche: 'Clínicas Odontológicas',
+        city: 'Madrid',
+        country: 'España',
+        website: 'https://example.com',
+        phone: '+34 912 34 56 78',
+        primaryEmail: 'contacto@acmedental.com',
+      },
+      {
+        companyName: 'HttpBin Test Bistro',
+        niche: 'Restaurantes',
+        city: 'Bogotá',
+        country: 'Colombia',
+        website: 'https://httpbin.org/html',
+        phone: '300 123 4567',
+      },
+      {
+        companyName: 'JSONPlaceholder Digital Agency',
+        niche: 'Agencias de Marketing',
+        city: 'Ciudad de México',
+        country: 'México',
+        website: 'https://jsonplaceholder.typicode.com',
+        phone: '+52 55 1234 5678',
+      },
+    ];
 
-  console.log(`[1/3] Limpiando e iniciando enriquecimiento para ${inputLeads.length} leads iniciales...`);
+    console.log(`[Paso 1/4] Entrada recibida: ${rawLeads.length} leads crudos.`);
 
-  const urlsToScrape = inputLeads
-    .map(l => l.website)
-    .filter((w): w is string => Boolean(w));
+    // 2. Extracción (WebsiteEnricherCrawler)
+    const targetUrls = rawLeads
+      .map(lead => lead.website)
+      .filter((url): url is string => Boolean(url));
 
-  const crawler = new WebsiteEnricherCrawler();
-  const scrapedResults = await crawler.enrichWebsites(urlsToScrape);
+    console.log(`[Paso 2/4] Ejecutando extracción con Crawlee para ${targetUrls.length} sitios web...`);
+    const crawler = new WebsiteEnricherCrawler();
+    const scrapedDataMap = await crawler.enrichWebsites(targetUrls);
 
-  console.log('\n[2/3] Procesando, normalizando datos y cruzando perfiles...');
-
-  for (const raw of inputLeads) {
-    const scraped = raw.website ? scrapedResults.get(raw.website) : null;
-
-    const cleaned = cleanLeadData({
-      ...raw,
-      primaryEmail: raw.primaryEmail || scraped?.emails[0],
-      phone: raw.phone || scraped?.phones[0],
-      foundUrls: scraped?.socials.map(s => s.url) || [],
-      socials: scraped?.socials || [],
+    // 3. Fusión y Limpieza (LeadCleanerService)
+    console.log('\n[Paso 3/4] Aplicando fusión de datos, normalización E.164 y generación de leadHash...');
+    const cleanedLeads = rawLeads.map(rawLead => {
+      const scrapedData = rawLead.website ? scrapedDataMap.get(rawLead.website) : null;
+      return LeadCleanerService.prepareLeadData(rawLead, scrapedData);
     });
 
-    console.log(`\n📌 Guardando Lead: "${cleaned.companyName}" (${cleaned.niche})`);
-    console.log(`   Website:      ${cleaned.website || 'N/A'}`);
-    console.log(`   Teléfono E164: ${cleaned.phoneE164 || 'N/A'}`);
-    console.log(`   Email:        ${cleaned.primaryEmail || 'N/A'}`);
-    console.log(`   Redes Soc.:   ${cleaned.socialProfiles.length} encontradas`);
-    console.log(`   Score Lead:   ${cleaned.score}/100`);
+    // 4. Persistencia en Base de Datos (LeadDbService)
+    console.log(`\n[Paso 4/4] Guardando/Actualizando leads en PostgreSQL Dokploy...`);
 
-    const savedLead = await saveOrUpdateLead(cleaned);
-    console.log(`   ✅ ID Registrado en BD: ${savedLead.id}`);
+    for (const leadData of cleanedLeads) {
+      const savedLead = await LeadDbService.saveOrUpdateLead(leadData);
+      console.log(`   ✅ Lead Procesado: "${savedLead.companyName}"`);
+      console.log(`      ID:        ${savedLead.id}`);
+      console.log(`      Hash:      ${savedLead.leadHash}`);
+      console.log(`      Website:   ${savedLead.website || 'N/A'}`);
+      console.log(`      Phone E164:${savedLead.phoneE164 || 'N/A'}`);
+      console.log(`      Score:     ${savedLead.score}/100`);
+      console.log(`      Status:    ${savedLead.status}\n`);
+    }
+
+    console.log('🎉 Pipeline completado con éxito sin errores.');
+
+  } catch (error) {
+    console.error('❌ Error crítico durante la ejecución del pipeline:', error);
+    process.exitCode = 1;
+  } finally {
+    // Cierre seguro de conexiones Prisma
+    console.log('🔌 Desconectando cliente Prisma...');
+    await prisma.$disconnect();
+    console.log('👋 Proceso finalizado.');
   }
-
-  console.log('\n[3/3] Proceso completado exitosamente.');
-  await prisma.$disconnect();
 }
 
-main().catch(err => {
-  console.error('Error durante la ejecución del pipeline:', err);
-  prisma.$disconnect();
-  process.exit(1);
-});
+bootstrap();

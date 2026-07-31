@@ -9,6 +9,7 @@ generator client {
 
 model Lead {
   id            String          @id @default(uuid())
+  leadHash      String          @unique // Hash determinista md5(website | phoneE164)
   companyName   String
   niche         String
   city          String?
@@ -25,8 +26,6 @@ model Lead {
 
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
-
-  @@unique([website, phoneE164]) // Llave compuesta para evitar duplicados duros
 }
 
 model SocialProfile {
