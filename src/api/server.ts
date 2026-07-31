@@ -22,9 +22,28 @@ export async function setupApp() {
   });
 
   /**
-   * Webhook Endpoint para recibir los leads extraídos directamente desde Apify (Google Maps / Social Actors).
+   * Webhook Endpoint protegido para recibir los leads extraídos desde Apify.
    */
   app.post('/webhooks/apify/leads', async (request, reply) => {
+    // 1. Validar Token de Autenticación (Header x-webhook-secret o Authorization: Bearer <token>)
+    const customSecretHeader = request.headers['x-webhook-secret'];
+    const authHeader = request.headers['authorization'];
+
+    let providedToken: string | undefined = undefined;
+
+    if (typeof customSecretHeader === 'string') {
+      providedToken = customSecretHeader.trim();
+    } else if (typeof authHeader === 'string') {
+      providedToken = authHeader.replace(/^Bearer\s+/i, '').trim();
+    }
+
+    if (!providedToken || providedToken !== env.WEBHOOK_SECRET_TOKEN) {
+      return reply.status(401).send({
+        error: 'No autorizado: El token de autenticación del webhook es inválido o no fue provisto.',
+      });
+    }
+
+    // 2. Validar que la carga útil sea un arreglo JSON
     const body = request.body;
 
     if (!Array.isArray(body)) {
@@ -33,7 +52,7 @@ export async function setupApp() {
       });
     }
 
-    // Mapeo robusto desde la estructura devuelta por Apify Google Maps Actor a RawLeadData interno
+    // 3. Mapeo robusto desde la estructura devuelta por Apify Google Maps Actor a RawLeadData interno
     const mappedLeads: RawLeadData[] = body.map((item: any) => ({
       companyName: item.title || item.companyName || item.name || 'Sin Nombre',
       niche: item.categoryName || item.niche || item.category || 'General',
@@ -53,10 +72,10 @@ export async function setupApp() {
       });
     }
 
-    // Inyección inmediata a la cola de BullMQ / Redis
+    // 4. Inyección asíncrona a la cola de BullMQ en Redis
     await enqueueLeads(mappedLeads);
 
-    // Respuesta asíncrona inmediata 202 Accepted
+    // Respuesta inmediata HTTP 202 Accepted
     return reply.status(202).send({
       success: true,
       message: 'Leads recibidos y encolados exitosamente.',
@@ -66,7 +85,7 @@ export async function setupApp() {
 }
 
 /**
- * Inicia el servidor HTTP de Fastify en el puerto 3000 y host 0.0.0.0.
+ * Inicia el servidor HTTP de Fastify en el puerto definido por env.API_PORT y host 0.0.0.0.
  */
 export async function startServer() {
   try {
@@ -75,8 +94,9 @@ export async function startServer() {
       port: env.API_PORT,
       host: '0.0.0.0', // Requerido para contenedores Docker / Dokploy
     });
-    console.log(`\n🚀 [Fastify Server] Webhook API escuchando en: ${address}`);
-    console.log(`   📍 Endpoint Apify: POST http://0.0.0.0:${env.API_PORT}/webhooks/apify/leads\n`);
+    console.log(`\n🚀 [Fastify Server] Webhook API seguro escuchando en: ${address}`);
+    console.log(`   📍 Endpoint Apify: POST http://0.0.0.0:${env.API_PORT}/webhooks/apify/leads`);
+    console.log(`   🔑 Header de autenticación requerido: x-webhook-secret: ${env.WEBHOOK_SECRET_TOKEN}\n`);
   } catch (err) {
     app.log.error(err);
     process.exit(1);

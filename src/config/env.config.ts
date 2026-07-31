@@ -31,6 +31,7 @@ export const envSchema = z.object({
   DATABASE_URL: z.string().min(1, 'DATABASE_URL es requerida'),
   REDIS_URL: z.string().default('redis://localhost:6379'),
   API_PORT: z.coerce.number().positive().default(3000),
+  WEBHOOK_SECRET_TOKEN: z.string().min(8).default('dev_secret_token_123'),
   DEFAULT_REGION_CODE: z.string().min(2).max(3).default('CO'),
   CRAWLER_MAX_CONCURRENCY: z.coerce.number().positive().default(5),
   CRAWLER_TIMEOUT_SECS: z.coerce.number().positive().default(15),
