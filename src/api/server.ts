@@ -9,10 +9,70 @@ export const app = Fastify({
   logger: true,
 });
 
-// Instanciar cliente oficial de Apify
 export const apifyClient = new ApifyClient({
   token: env.APIFY_API_TOKEN,
 });
+
+const BATCH_LIMIT = 2500;
+
+/**
+ * Función asíncrona de segundo plano para procesar datasets masivos de Apify en streaming/paginación
+ * e inyectar los leads a la cola de BullMQ en lotes, evitando OOM y bloqueos HTTP.
+ */
+export async function processApifyDatasetInBackground(datasetId: string): Promise<void> {
+  console.log(`\n📦 [Background Task] Iniciando descarga paginada/streaming del dataset Apify ID: ${datasetId}...`);
+
+  let offset = 0;
+  let hasMore = true;
+  let totalEnqueued = 0;
+
+  try {
+    const datasetClient = apifyClient.dataset(datasetId);
+
+    while (hasMore) {
+      // Descargar trozo/lote de datos paginado
+      const response = await datasetClient.listItems({
+        offset,
+        limit: BATCH_LIMIT,
+      });
+
+      const items = response.items || [];
+
+      if (items.length === 0) {
+        hasMore = false;
+        break;
+      }
+
+      // Mapear el lote actual
+      const mappedBatch: RawLeadData[] = items.map((item: any) => ({
+        companyName: item.title || item.companyName || item.name || 'Sin Nombre',
+        niche: item.categoryName || item.niche || item.category || 'General',
+        city: item.city || item.addressParsed?.city || item.location?.city || undefined,
+        country: item.countryCode || item.country || item.addressParsed?.countryCode || undefined,
+        address: item.address || item.street || undefined,
+        website: item.website || item.url || item.domain || undefined,
+        phone: item.phoneUnformatted || item.phone || item.phoneNumber || undefined,
+        primaryEmail: item.email || item.primaryEmail || undefined,
+      }));
+
+      console.log(`📦 [Background Task] Descargado lote [Offset: ${offset}] (${mappedBatch.length} leads). Encolando en Redis...`);
+      await enqueueLeads(mappedBatch);
+
+      totalEnqueued += mappedBatch.length;
+      offset += items.length;
+
+      // Si recibimos menos elementos que el límite, alcanzamos el final del dataset
+      if (items.length < BATCH_LIMIT) {
+        hasMore = false;
+      }
+    }
+
+    console.log(`🎉 [Background Task] Proceso finalizado. Total de ${totalEnqueued} leads del dataset ${datasetId} encolados en BullMQ.\n`);
+
+  } catch (err: any) {
+    console.error(`❌ [Background Task Error] Error crítico procesando dataset de Apify [ID: ${datasetId}]:`, err.message);
+  }
+}
 
 /**
  * Registra rutas y plugins de Fastify.
@@ -28,10 +88,11 @@ export async function setupApp() {
   });
 
   /**
-   * Webhook Endpoint protegido para recibir eventos de Apify y descargar datasets completos.
+   * Webhook Endpoint protegido para recibir eventos de Apify.
+   * Responde HTTP 202 Inmediatamente y procesa el dataset de forma asíncrona en segundo plano.
    */
   app.post('/webhooks/apify/leads', async (request, reply) => {
-    // 1. Validar Token de Autenticación de Seguridad (Header x-webhook-secret o Authorization: Bearer <token>)
+    // 1. Validar Token de Autenticación (Header x-webhook-secret o Authorization: Bearer <token>)
     const customSecretHeader = request.headers['x-webhook-secret'];
     const authHeader = request.headers['authorization'];
 
@@ -49,7 +110,7 @@ export async function setupApp() {
       });
     }
 
-    // 2. Validar Carga Útil del Evento de Apify y obtener defaultDatasetId
+    // 2. Extraer y validar defaultDatasetId del evento de Apify
     const body = (request.body || {}) as any;
     const datasetId = body.resource?.defaultDatasetId || body.defaultDatasetId || body.eventData?.defaultDatasetId;
 
@@ -59,51 +120,17 @@ export async function setupApp() {
       });
     }
 
-    try {
-      request.log.info(`Descargando dataset de Apify con ID: ${datasetId}...`);
+    // 3. Disparar procesamiento asíncrono en segundo plano SIN await (Fire and Forget)
+    processApifyDatasetInBackground(datasetId).catch(err => {
+      console.error(`❌ Error no capturado en tarea en segundo plano para dataset ${datasetId}:`, err);
+    });
 
-      // 3. Descargar los resultados reales utilizando el SDK de ApifyClient
-      const { items } = await apifyClient.dataset(datasetId).listItems();
-
-      if (!items || items.length === 0) {
-        return reply.status(200).send({
-          success: true,
-          message: 'El dataset descargado está vacío. Ningún lead fue encolado.',
-          datasetId,
-          queuedCount: 0,
-        });
-      }
-
-      // 4. Mapeo robusto desde los ítems de Apify a RawLeadData interno
-      const mappedLeads: RawLeadData[] = items.map((item: any) => ({
-        companyName: item.title || item.companyName || item.name || 'Sin Nombre',
-        niche: item.categoryName || item.niche || item.category || 'General',
-        city: item.city || item.addressParsed?.city || item.location?.city || undefined,
-        country: item.countryCode || item.country || item.addressParsed?.countryCode || undefined,
-        address: item.address || item.street || undefined,
-        website: item.website || item.url || item.domain || undefined,
-        phone: item.phoneUnformatted || item.phone || item.phoneNumber || undefined,
-        primaryEmail: item.email || item.primaryEmail || undefined,
-      }));
-
-      // 5. Inyección asíncrona a la cola de BullMQ en Redis
-      await enqueueLeads(mappedLeads);
-
-      // Respuesta HTTP 202 Accepted
-      return reply.status(202).send({
-        success: true,
-        message: 'Dataset de Apify descargado y leads encolados exitosamente.',
-        datasetId,
-        queuedCount: mappedLeads.length,
-      });
-
-    } catch (err: any) {
-      request.log.error(`Error descargando dataset de Apify [ID: ${datasetId}]:`, err.message);
-      return reply.status(500).send({
-        error: 'Error al conectar con la API de Apify para descargar el dataset.',
-        details: err.message,
-      });
-    }
+    // 4. Responder INMEDIATAMENTE al Webhook con HTTP 202 Accepted (Cero Timeouts en Apify)
+    return reply.status(202).send({
+      success: true,
+      message: 'Procesamiento de dataset iniciado en segundo plano.',
+      datasetId,
+    });
   });
 }
 
