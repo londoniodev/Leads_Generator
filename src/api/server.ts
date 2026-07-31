@@ -1,11 +1,17 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
+import { ApifyClient } from 'apify-client';
 import env from '../config/env.config.js';
 import { enqueueLeads } from '../queue/lead.queue.js';
 import { RawLeadData } from '../services/lead-cleaner.service.js';
 
 export const app = Fastify({
   logger: true,
+});
+
+// Instanciar cliente oficial de Apify
+export const apifyClient = new ApifyClient({
+  token: env.APIFY_API_TOKEN,
 });
 
 /**
@@ -22,10 +28,10 @@ export async function setupApp() {
   });
 
   /**
-   * Webhook Endpoint protegido para recibir los leads extraídos desde Apify.
+   * Webhook Endpoint protegido para recibir eventos de Apify y descargar datasets completos.
    */
   app.post('/webhooks/apify/leads', async (request, reply) => {
-    // 1. Validar Token de Autenticación (Header x-webhook-secret o Authorization: Bearer <token>)
+    // 1. Validar Token de Autenticación de Seguridad (Header x-webhook-secret o Authorization: Bearer <token>)
     const customSecretHeader = request.headers['x-webhook-secret'];
     const authHeader = request.headers['authorization'];
 
@@ -43,44 +49,61 @@ export async function setupApp() {
       });
     }
 
-    // 2. Validar que la carga útil sea un arreglo JSON
-    const body = request.body;
+    // 2. Validar Carga Útil del Evento de Apify y obtener defaultDatasetId
+    const body = (request.body || {}) as any;
+    const datasetId = body.resource?.defaultDatasetId || body.defaultDatasetId || body.eventData?.defaultDatasetId;
 
-    if (!Array.isArray(body)) {
+    if (!datasetId || typeof datasetId !== 'string') {
       return reply.status(400).send({
-        error: 'Payload inválido: el cuerpo de la petición debe ser un arreglo JSON de leads.',
+        error: 'Payload de Apify inválido: falta resource.defaultDatasetId en la carga útil del evento.',
       });
     }
 
-    // 3. Mapeo robusto desde la estructura devuelta por Apify Google Maps Actor a RawLeadData interno
-    const mappedLeads: RawLeadData[] = body.map((item: any) => ({
-      companyName: item.title || item.companyName || item.name || 'Sin Nombre',
-      niche: item.categoryName || item.niche || item.category || 'General',
-      city: item.city || item.addressParsed?.city || item.location?.city || undefined,
-      country: item.countryCode || item.country || item.addressParsed?.countryCode || undefined,
-      address: item.address || item.street || undefined,
-      website: item.website || item.url || item.domain || undefined,
-      phone: item.phoneUnformatted || item.phone || item.phoneNumber || undefined,
-      primaryEmail: item.email || item.primaryEmail || undefined,
-    }));
+    try {
+      request.log.info(`Descargando dataset de Apify con ID: ${datasetId}...`);
 
-    if (mappedLeads.length === 0) {
-      return reply.status(200).send({
+      // 3. Descargar los resultados reales utilizando el SDK de ApifyClient
+      const { items } = await apifyClient.dataset(datasetId).listItems();
+
+      if (!items || items.length === 0) {
+        return reply.status(200).send({
+          success: true,
+          message: 'El dataset descargado está vacío. Ningún lead fue encolado.',
+          datasetId,
+          queuedCount: 0,
+        });
+      }
+
+      // 4. Mapeo robusto desde los ítems de Apify a RawLeadData interno
+      const mappedLeads: RawLeadData[] = items.map((item: any) => ({
+        companyName: item.title || item.companyName || item.name || 'Sin Nombre',
+        niche: item.categoryName || item.niche || item.category || 'General',
+        city: item.city || item.addressParsed?.city || item.location?.city || undefined,
+        country: item.countryCode || item.country || item.addressParsed?.countryCode || undefined,
+        address: item.address || item.street || undefined,
+        website: item.website || item.url || item.domain || undefined,
+        phone: item.phoneUnformatted || item.phone || item.phoneNumber || undefined,
+        primaryEmail: item.email || item.primaryEmail || undefined,
+      }));
+
+      // 5. Inyección asíncrona a la cola de BullMQ en Redis
+      await enqueueLeads(mappedLeads);
+
+      // Respuesta HTTP 202 Accepted
+      return reply.status(202).send({
         success: true,
-        message: 'Se recibió un arreglo vacío. Ningún lead fue encolado.',
-        queuedCount: 0,
+        message: 'Dataset de Apify descargado y leads encolados exitosamente.',
+        datasetId,
+        queuedCount: mappedLeads.length,
+      });
+
+    } catch (err: any) {
+      request.log.error(`Error descargando dataset de Apify [ID: ${datasetId}]:`, err.message);
+      return reply.status(500).send({
+        error: 'Error al conectar con la API de Apify para descargar el dataset.',
+        details: err.message,
       });
     }
-
-    // 4. Inyección asíncrona a la cola de BullMQ en Redis
-    await enqueueLeads(mappedLeads);
-
-    // Respuesta inmediata HTTP 202 Accepted
-    return reply.status(202).send({
-      success: true,
-      message: 'Leads recibidos y encolados exitosamente.',
-      queuedCount: mappedLeads.length,
-    });
   });
 }
 
@@ -95,7 +118,7 @@ export async function startServer() {
       host: '0.0.0.0', // Requerido para contenedores Docker / Dokploy
     });
     console.log(`\n🚀 [Fastify Server] Webhook API seguro escuchando en: ${address}`);
-    console.log(`   📍 Endpoint Apify: POST http://0.0.0.0:${env.API_PORT}/webhooks/apify/leads`);
+    console.log(`   📍 Endpoint Apify Event Webhook: POST http://0.0.0.0:${env.API_PORT}/webhooks/apify/leads`);
     console.log(`   🔑 Header de autenticación requerido: x-webhook-secret: ${env.WEBHOOK_SECRET_TOKEN}\n`);
   } catch (err) {
     app.log.error(err);
