@@ -3,9 +3,6 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-/**
- * Helper para parsear arreglos de números desde variables de entorno (ej: "401,403,429" o "[401,403,429]").
- */
 const numericArraySchema = z.union([
   z.array(z.number()),
   z.string().transform((val, ctx) => {
@@ -32,6 +29,8 @@ const numericArraySchema = z.union([
  */
 export const envSchema = z.object({
   DATABASE_URL: z.string().min(1, 'DATABASE_URL es requerida'),
+  REDIS_URL: z.string().default('redis://localhost:6379'),
+  API_PORT: z.coerce.number().positive().default(3000),
   DEFAULT_REGION_CODE: z.string().min(2).max(3).default('CO'),
   CRAWLER_MAX_CONCURRENCY: z.coerce.number().positive().default(5),
   CRAWLER_TIMEOUT_SECS: z.coerce.number().positive().default(15),
