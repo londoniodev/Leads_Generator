@@ -33,6 +33,7 @@ export const envSchema = z.object({
   API_PORT: z.coerce.number().positive().default(3000),
   WEBHOOK_SECRET_TOKEN: z.string().min(8).default('dev_secret_token_123'),
   APIFY_API_TOKEN: z.string().min(1).default('mock_apify_token_for_dev'),
+  PROCESSOR_WEBHOOK_URL_SOCIAL_SEED: z.string().optional(),
   DEFAULT_REGION_CODE: z.string().min(2).max(3).default('CO'),
   CRAWLER_MAX_CONCURRENCY: z.coerce.number().positive().default(5),
   CRAWLER_TIMEOUT_SECS: z.coerce.number().positive().default(15),
