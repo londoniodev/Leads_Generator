@@ -5,11 +5,11 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
-    "db:push": "prisma db push",
+    "db:push": "prisma db push --accept-data-loss",
     "crawl": "tsx src/cli/run-website-crawler.ts",
     "enqueue": "tsx src/cli/run-queue-producer.ts",
-    "worker": "tsx src/queue/lead.worker.ts",
-    "api:start": "tsx src/api/server.ts",
+    "worker": "prisma db push --accept-data-loss && tsx src/queue/lead.worker.ts",
+    "api:start": "prisma db push --accept-data-loss && tsx src/api/server.ts",
     "test:pipeline": "tsx src/cli/test-pipeline.ts"
   },
   "keywords": [],
