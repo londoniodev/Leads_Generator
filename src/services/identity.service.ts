@@ -36,7 +36,8 @@ export class IdentityService {
   }
 
   /**
-   * Resuelve la identidad de un perfil social contra la base de datos PostgreSQL.
+   * Resuelve la identidad de un perfil social contra la base de datos PostgreSQL
+   * aplicando un escudo de protección contra falsos positivos (números compartidos por agencias).
    */
   public static async resolveIdentity(socialData: any): Promise<string | null> {
     if (!socialData) return null;
@@ -48,15 +49,24 @@ export class IdentityService {
       if (existingLead) return existingLead.id;
     }
 
-    // 2. Extraer teléfono de la biografía (ej. Instagram/TikTok bio)
+    // 2. Extraer teléfono de la biografía (ej. Instagram/TikTok bio) y evaluar ambigüedad
     const bioText = socialData.bio || socialData.biography || socialData.description || '';
     const extractedPhone = this.extractAndNormalizePhone(bioText, socialData.countryCode || 'CO');
 
     if (extractedPhone) {
-      const matchByPhone = await prisma.lead.findFirst({
+      const matchingLeads = await prisma.lead.findMany({
         where: { phoneE164: extractedPhone },
+        select: { id: true },
       });
-      if (matchByPhone) return matchByPhone.id;
+
+      if (matchingLeads.length === 1) {
+        return matchingLeads[0].id;
+      } else if (matchingLeads.length > 1) {
+        console.warn(
+          `[WARNING] Teléfono ${extractedPhone} asociado a múltiples leads. Fusión automática abortada para evitar corrupción de datos.`
+        );
+        return null;
+      }
     }
 
     // 3. Buscar coincidencia por handle/username en SocialProfile
