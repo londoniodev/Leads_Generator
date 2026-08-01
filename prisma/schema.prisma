@@ -8,24 +8,27 @@ generator client {
 }
 
 model Lead {
-  id            String          @id @default(uuid())
-  leadHash      String          @unique // Hash determinista md5(website | phoneE164)
-  companyName   String
-  niche         String
-  city          String?
-  country       String?
-  address       String?
-  website       String?         // NO usar @unique
-  phoneE164     String?         
-  primaryEmail  String?
-  status        LeadStatus      @default(NEW)
-  score         Int             @default(0)
+  id             String          @id @default(uuid())
+  leadHash       String          @unique // Hash determinista md5(website | phoneE164)
+  companyName    String
+  niche          String
+  city           String?
+  country        String?
+  address        String?
+  website        String?         // NO usar @unique
+  phoneE164      String?         
+  primaryEmail   String?
+  rating         Float?
+  reviewsCount   Int?
+  googleCategory String?
+  status         LeadStatus      @default(NEW)
+  score          Int             @default(0)
   
   socialProfiles SocialProfile[]
   contacts       ContactPerson[]
 
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
 }
 
 model SocialProfile {

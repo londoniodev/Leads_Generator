@@ -13,6 +13,9 @@ export interface RawLeadData {
   website?: string;
   phone?: string;
   primaryEmail?: string;
+  rating?: number;
+  reviewsCount?: number;
+  googleCategory?: string;
   foundUrls?: string[];
   socials?: ExtractedSocial[];
 }
@@ -27,6 +30,9 @@ export interface CleanedLeadData {
   website: string | null;
   phoneE164: string | null;
   primaryEmail: string | null;
+  rating: number | null;
+  reviewsCount: number | null;
+  googleCategory: string | null;
   socialProfiles: ExtractedSocial[];
   status: LeadStatus;
   score: number;
@@ -100,6 +106,9 @@ export function cleanLeadData(raw: RawLeadData): CleanedLeadData {
   const website = normalizeWebsiteUrl(raw.website);
   const phoneE164 = normalizePhoneE164(raw.phone);
   const primaryEmail = sanitizeEmail(raw.primaryEmail);
+  const rating = typeof raw.rating === 'number' ? raw.rating : null;
+  const reviewsCount = typeof raw.reviewsCount === 'number' ? raw.reviewsCount : null;
+  const googleCategory = raw.googleCategory?.trim() || null;
 
   // Generar Hash Determinista
   const leadHash = generateLeadHash(website || raw.website || companyName, phoneE164);
@@ -123,7 +132,8 @@ export function cleanLeadData(raw: RawLeadData): CleanedLeadData {
   if (website) score += 20;
   if (phoneE164) score += 25;
   if (primaryEmail) score += 25;
-  score += Math.min(socialProfiles.length * 10, 20);
+  if (rating && rating >= 4.0) score += 10;
+  score += Math.min(socialProfiles.length * 10, 10);
 
   // Determinar status inicial
   let status: LeadStatus = LeadStatus.NEW;
@@ -141,6 +151,9 @@ export function cleanLeadData(raw: RawLeadData): CleanedLeadData {
     website,
     phoneE164,
     primaryEmail,
+    rating,
+    reviewsCount,
+    googleCategory,
     socialProfiles,
     status,
     score

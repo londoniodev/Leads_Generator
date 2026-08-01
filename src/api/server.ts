@@ -55,6 +55,9 @@ export async function processApifyDatasetInBackground(datasetId: string): Promis
         website: item.website || item.url || item.domain || undefined,
         phone: item.phoneUnformatted || item.phone || item.phoneNumber || undefined,
         primaryEmail: item.email || item.primaryEmail || undefined,
+        rating: typeof item.totalScore === 'number' ? item.totalScore : (typeof item.rating === 'number' ? item.rating : undefined),
+        reviewsCount: typeof item.reviewsCount === 'number' ? item.reviewsCount : (typeof item.reviews === 'number' ? item.reviews : undefined),
+        googleCategory: item.categoryName || item.category || undefined,
       }));
 
       console.log(`📦 [Background Task] Descargado lote [Offset: ${offset}] (${mappedBatch.length} leads). Encolando en Redis...`);
