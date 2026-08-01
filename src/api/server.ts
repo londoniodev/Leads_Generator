@@ -88,6 +88,30 @@ export async function setupApp() {
   });
 
   /**
+   * Endpoint de procesamiento manual de datasets de Apify por Dataset ID.
+   */
+  app.post('/api/datasets/process', async (request, reply) => {
+    const body = (request.body || {}) as any;
+    const datasetId = body.datasetId || body.id;
+
+    if (!datasetId || typeof datasetId !== 'string') {
+      return reply.status(400).send({
+        error: 'El campo datasetId es requerido en el body.',
+      });
+    }
+
+    processApifyDatasetInBackground(datasetId).catch(err => {
+      console.error(`❌ Error no capturado en procesamiento manual de dataset ${datasetId}:`, err);
+    });
+
+    return reply.status(200).send({
+      success: true,
+      message: 'Procesamiento de dataset iniciado.',
+      datasetId,
+    });
+  });
+
+  /**
    * Webhook Endpoint protegido para recibir eventos de Apify.
    * Responde HTTP 202 Inmediatamente y procesa el dataset de forma asíncrona en segundo plano.
    */
