@@ -62,9 +62,9 @@ export class IdentityService {
       if (matchingLeads.length === 1) {
         return matchingLeads[0].id;
       } else if (matchingLeads.length > 1) {
-        console.warn(
-          `[WARNING] Teléfono ${extractedPhone} asociado a múltiples leads. Fusión automática abortada para evitar corrupción de datos.`
-        );
+        const note = `Teléfono ${extractedPhone} asociado a múltiples leads. Fusión automática abortada por ambigüedad.`;
+        console.warn(`[WARNING] ${note}`);
+        await this.saveConflictedProfile(socialData, note);
         return null;
       }
     }
@@ -74,13 +74,67 @@ export class IdentityService {
     if (rawUsername) {
       const cleanUsername = String(rawUsername).replace(/^@/, '').trim();
       const existingProfile = await prisma.socialProfile.findFirst({
-        where: { username: cleanUsername },
+        where: { username: cleanUsername, status: 'LINKED' },
         select: { leadId: true },
       });
-      if (existingProfile) return existingProfile.leadId;
+      if (existingProfile && existingProfile.leadId) return existingProfile.leadId;
     }
 
     return null;
+  }
+
+  /**
+   * Guarda un perfil social en estado de Cuarentena/Conflicto cuando resolveIdentity no logra vinculación segura.
+   */
+  public static async saveConflictedProfile(socialData: any, note: string): Promise<void> {
+    const rawPlatform = String(socialData.platform || 'INSTAGRAM').toUpperCase();
+    const platform = (Object.values(Platform).includes(rawPlatform as Platform)
+      ? rawPlatform
+      : 'INSTAGRAM') as Platform;
+
+    const rawUsername = socialData.username || socialData.handle || socialData.user || '';
+    const username = String(rawUsername).replace(/^@/, '').trim() || null;
+    const url = socialData.url || (username ? `https://www.instagram.com/${username}` : 'https://social.com');
+    const followers = typeof socialData.followersCount === 'number' ? socialData.followersCount : (typeof socialData.followers === 'number' ? socialData.followers : null);
+    const bio = socialData.biography || socialData.bio || null;
+    const emailInBio = socialData.email || socialData.emailInBio || null;
+    const verified = Boolean(socialData.isVerified || socialData.verified);
+
+    // Buscar si ya existe el perfil por plataforma y username
+    const existing = username
+      ? await prisma.socialProfile.findFirst({
+          where: { platform, username },
+        })
+      : null;
+
+    if (existing) {
+      await prisma.socialProfile.update({
+        where: { id: existing.id },
+        data: {
+          status: 'CONFLICTED',
+          conflictNote: note,
+          followers: followers || existing.followers,
+          bio: bio || existing.bio,
+          emailInBio: emailInBio || existing.emailInBio,
+          verified: verified || existing.verified,
+        },
+      });
+    } else {
+      await prisma.socialProfile.create({
+        data: {
+          leadId: null,
+          platform,
+          url,
+          username,
+          followers,
+          bio,
+          emailInBio,
+          verified,
+          status: 'CONFLICTED',
+          conflictNote: note,
+        },
+      });
+    }
   }
 
   /**
@@ -100,33 +154,40 @@ export class IdentityService {
     const emailInBio = socialData.email || socialData.emailInBio || null;
     const verified = Boolean(socialData.isVerified || socialData.verified);
 
-    // Upsert atómico en SocialProfile por [leadId, platform]
-    await prisma.socialProfile.upsert({
-      where: {
-        leadId_platform: {
+    // Buscar perfil existente por leadId y plataforma o por id único
+    const existing = await prisma.socialProfile.findFirst({
+      where: { leadId, platform },
+    });
+
+    if (existing) {
+      await prisma.socialProfile.update({
+        where: { id: existing.id },
+        data: {
+          url: url || existing.url,
+          username: username || existing.username,
+          followers: followers !== null ? followers : existing.followers,
+          bio: bio || existing.bio,
+          emailInBio: emailInBio || existing.emailInBio,
+          verified: verified || existing.verified,
+          status: 'LINKED',
+          conflictNote: null,
+        },
+      });
+    } else {
+      await prisma.socialProfile.create({
+        data: {
           leadId,
           platform,
+          url: url || `https://social.com/${username || leadId}`,
+          username,
+          followers,
+          bio,
+          emailInBio,
+          verified,
+          status: 'LINKED',
         },
-      },
-      update: {
-        url: url || undefined,
-        username,
-        followers,
-        bio,
-        emailInBio,
-        verified,
-      },
-      create: {
-        leadId,
-        platform,
-        url: url || `https://social.com/${username || leadId}`,
-        username,
-        followers,
-        bio,
-        emailInBio,
-        verified,
-      },
-    });
+      });
+    }
 
     // Recalcular Lead Score y actualizar status
     const lead = await prisma.lead.findUnique({
