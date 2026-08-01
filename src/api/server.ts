@@ -4,6 +4,7 @@ import { ApifyClient } from 'apify-client';
 import env from '../config/env.config.js';
 import { enqueueLeads } from '../queue/lead.queue.js';
 import { RawLeadData } from '../services/lead-cleaner.service.js';
+import { startCronScheduler } from '../services/cron.service.js';
 
 export const app = Fastify({
   logger: true,
@@ -174,6 +175,10 @@ export async function startServer() {
     console.log(`\n🚀 [Fastify Server] Webhook API seguro escuchando en: ${address}`);
     console.log(`   📍 Endpoint Apify Event Webhook: POST http://0.0.0.0:${env.API_PORT}/webhooks/apify/leads`);
     console.log(`   🔑 Header o Query Param de autenticación: x-webhook-secret / ?secret=${env.WEBHOOK_SECRET_TOKEN}\n`);
+
+    // Inicializar Cronjob de vaciado de búfer de perfiles sociales cada 10 minutos
+    startCronScheduler();
+
   } catch (err) {
     app.log.error(err);
     process.exit(1);

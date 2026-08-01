@@ -50,19 +50,26 @@ export class BatchBufferService {
   }
 
   /**
-   * Vacía manualmente cualquier lote remanente almacenado en Redis para una plataforma dada.
+   * Vacía atómicamente cualquier lote remanente almacenado en Redis para una plataforma dada usando MULTI/EXEC.
    */
   public static async flushBatch<T = any>(platform: string): Promise<T[]> {
     const key = `batch:${platform.toLowerCase()}`;
     try {
-      const items = await redisConnection.lrange(key, 0, -1);
-      if (items && items.length > 0) {
-        await redisConnection.del(key);
-        return items.map((item) => JSON.parse(item));
+      const multi = redisConnection.multi();
+      multi.lrange(key, 0, -1);
+      multi.del(key);
+
+      const results = await multi.exec();
+      if (!results || results.length === 0) return [];
+
+      const [errLrange, rawItems] = results[0] as [Error | null, string[]];
+      if (errLrange || !Array.isArray(rawItems) || rawItems.length === 0) {
+        return [];
       }
-      return [];
+
+      return rawItems.map((item) => JSON.parse(item));
     } catch (error: any) {
-      console.error(`[BatchBufferService] Error al vaciar búfer Redis para ${platform}:`, error?.message || error);
+      console.error(`[BatchBufferService] Error al vaciar búfer Redis atómicamente para ${platform}:`, error?.message || error);
       return [];
     }
   }
