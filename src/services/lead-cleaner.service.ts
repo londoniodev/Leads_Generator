@@ -43,7 +43,25 @@ export function generateLeadHash(website: string | null, phoneE164: string | nul
 }
 
 /**
- * Normaliza el dominio de un sitio web.
+ * Dominios de redes sociales y motores de búsqueda que NO deben tratarse como el sitio web oficial de la empresa.
+ */
+const NON_OFFICIAL_WEBSITE_DOMAINS = [
+  'instagram.com',
+  'facebook.com',
+  'fb.com',
+  'linkedin.com',
+  'twitter.com',
+  'x.com',
+  'tiktok.com',
+  'youtube.com',
+  'pinterest.com',
+  'google.com',
+  'google.es',
+  'google.co',
+];
+
+/**
+ * Normaliza el dominio de un sitio web omitiendo dominios de redes sociales y Google Maps.
  */
 export function normalizeWebsiteUrl(rawUrl?: string | null): string | null {
   if (!rawUrl) return null;
@@ -53,6 +71,16 @@ export function normalizeWebsiteUrl(rawUrl?: string | null): string | null {
   }
   try {
     const urlObj = new URL(clean);
+    const hostname = urlObj.hostname.replace(/^www\./, '');
+
+    const isNonOfficialDomain = NON_OFFICIAL_WEBSITE_DOMAINS.some(
+      domain => hostname === domain || hostname.endsWith('.' + domain)
+    );
+
+    if (isNonOfficialDomain) {
+      return null;
+    }
+
     return `${urlObj.protocol}//${urlObj.hostname}`.replace(/\/$/, '');
   } catch {
     return null;
@@ -74,9 +102,9 @@ export function cleanLeadData(raw: RawLeadData): CleanedLeadData {
   const primaryEmail = sanitizeEmail(raw.primaryEmail);
 
   // Generar Hash Determinista
-  const leadHash = generateLeadHash(website, phoneE164);
+  const leadHash = generateLeadHash(website || raw.website || companyName, phoneE164);
 
-  // Combinar redes sociales recibidas y encontradas en URLs escaneadas
+  // Extraer perfiles sociales de todas las URLs (incluyendo raw.website si era un link de Instagram/Facebook)
   const allUrls = [...(raw.foundUrls || [])];
   if (raw.website) allUrls.push(raw.website);
   
