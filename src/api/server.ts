@@ -2,10 +2,13 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import { ApifyClient } from 'apify-client';
 import env from '../config/env.config.js';
+import prisma from '../config/database.js';
 import { enqueueLeads } from '../queue/lead.queue.js';
 import { RawLeadData } from '../services/lead-cleaner.service.js';
 import { startCronScheduler } from '../services/cron.service.js';
 import { IdentityService } from '../services/identity.service.js';
+import { NormalizationService } from '../services/normalization.service.js';
+import { Platform } from '@prisma/client';
 
 export const app = Fastify({
   logger: true,
@@ -224,6 +227,150 @@ export async function setupApp() {
       datasetId,
     });
   });
+
+  /**
+   * Webhook Agnóstico (Social Seed) para búsquedas iniciales de Instagram / TikTok.
+   */
+  app.post('/webhooks/apify/social-seed', async (request, reply) => {
+    const customSecretHeader = request.headers['x-webhook-secret'];
+    const authHeader = request.headers['authorization'];
+    const querySecret = (request.query as any)?.secret || (request.query as any)?.token || (request.query as any)?.['x-webhook-secret'];
+
+    let providedToken: string | undefined = undefined;
+
+    if (typeof customSecretHeader === 'string' && customSecretHeader.trim()) {
+      providedToken = customSecretHeader.trim();
+    } else if (typeof authHeader === 'string' && authHeader.trim()) {
+      providedToken = authHeader.replace(/^Bearer\s+/i, '').trim();
+    } else if (typeof querySecret === 'string' && querySecret.trim()) {
+      providedToken = querySecret.trim();
+    }
+
+    if (!providedToken || providedToken !== env.WEBHOOK_SECRET_TOKEN) {
+      return reply.status(401).send({ error: 'No autorizado.' });
+    }
+
+    const body = (request.body || {}) as any;
+    const datasetId = body.resource?.defaultDatasetId || body.defaultDatasetId || body.eventData?.defaultDatasetId;
+    const actorId = body.actorId || body.resource?.actorId || body.eventData?.actorId || 'apify/instagram-search-scraper';
+
+    if (!datasetId || typeof datasetId !== 'string') {
+      return reply.status(400).send({ error: 'Payload de Apify inválido: falta defaultDatasetId.' });
+    }
+
+    (async () => {
+      console.log(`\n🌱 [Social Seed Webhook] Procesando dataset semilla ID: ${datasetId} (Actor: ${actorId})...`);
+      const datasetClient = apifyClient.dataset(datasetId);
+      const itemsResponse = await datasetClient.listItems({ limit: 1000 });
+      const items = itemsResponse.items || [];
+
+      console.log(`🌱 [Social Seed Webhook] Normalizando ${items.length} registros semilla...`);
+
+      for (const rawItem of items) {
+        try {
+          const normalized = NormalizationService.normalizeSocialSeed(actorId, rawItem);
+          if (!normalized) continue;
+
+          // 1. Extraer teléfono de la biografía
+          const extractedPhone = normalized.bio
+            ? IdentityService.extractAndNormalizePhone(normalized.bio, 'CO')
+            : null;
+
+          const platformEnum = (normalized.source === 'TIKTOK' ? 'TIKTOK' : 'INSTAGRAM') as Platform;
+
+          if (extractedPhone) {
+            const matchingLeads = await prisma.lead.findMany({
+              where: { phoneE164: extractedPhone },
+            });
+
+            if (matchingLeads.length === 1) {
+              await IdentityService.mergeSocialProfile(matchingLeads[0].id, {
+                platform: platformEnum,
+                username: normalized.username,
+                url: normalized.externalUrl || `https://instagram.com/${normalized.username}`,
+                followersCount: normalized.followersCount,
+                bio: normalized.bio,
+                verified: normalized.verified,
+              });
+              console.log(`   └─ 🔗 Fusionado con Lead existente por teléfono: ${extractedPhone}`);
+              continue;
+            } else if (matchingLeads.length > 1) {
+              await IdentityService.saveConflictedProfile(
+                {
+                  platform: platformEnum,
+                  username: normalized.username,
+                  url: normalized.externalUrl || `https://instagram.com/${normalized.username}`,
+                  followersCount: normalized.followersCount,
+                  bio: normalized.bio,
+                  verified: normalized.verified,
+                },
+                `Teléfono ${extractedPhone} presente en múltiples leads.`
+              );
+              console.log(`   └─ ⚠️ Guardado en Cuarentena por conflicto de teléfono: ${extractedPhone}`);
+              continue;
+            }
+          }
+
+          // 2. Si no hay teléfono o no hay coincidencia previa, hacer Upsert de Lead & SocialProfile
+          const leadHash = NormalizationService.generateSocialLeadHash(normalized.source, normalized.username, extractedPhone);
+
+          const existingProfile = await prisma.socialProfile.findFirst({
+            where: { platform: platformEnum, username: normalized.username },
+            include: { lead: true },
+          });
+
+          if (existingProfile && existingProfile.leadId) {
+            await prisma.socialProfile.update({
+              where: { id: existingProfile.id },
+              data: {
+                followers: normalized.followersCount || existingProfile.followers,
+                bio: normalized.bio || existingProfile.bio,
+                verified: normalized.verified || existingProfile.verified,
+              },
+            });
+            console.log(`   └─ 🔄 Perfil social actualizado para handle: @${normalized.username}`);
+          } else {
+            await prisma.lead.create({
+              data: {
+                leadHash,
+                companyName: normalized.fullName || normalized.username,
+                niche: normalized.source,
+                source: normalized.source,
+                website: normalized.externalUrl,
+                phoneE164: extractedPhone,
+                status: 'NEW',
+                score: extractedPhone ? 50 : 25,
+                socialProfiles: {
+                  create: {
+                    platform: platformEnum,
+                    username: normalized.username,
+                    url: normalized.externalUrl || (platformEnum === 'TIKTOK' ? `https://tiktok.com/@${normalized.username}` : `https://instagram.com/${normalized.username}`),
+                    followers: normalized.followersCount,
+                    bio: normalized.bio,
+                    verified: normalized.verified,
+                    status: 'LINKED',
+                  },
+                },
+              },
+            });
+            console.log(`   └─ ✨ Nuevo Lead creado desde ${normalized.source}: @${normalized.username}`);
+          }
+        } catch (err: any) {
+          console.error(`❌ Error procesando ítem social semilla (@${rawItem.username || 'desconocido'}):`, err?.message || err);
+        }
+      }
+
+      console.log(`🎉 [Social Seed Webhook] Procesamiento completado para dataset ${datasetId}.\n`);
+    })().catch((err) => {
+      console.error('❌ Error en segundo plano en Social Seed Webhook:', err);
+    });
+
+    return reply.status(202).send({
+      success: true,
+      message: 'Procesamiento de búsqueda semilla iniciado en segundo plano.',
+      datasetId,
+    });
+  });
 }
 
 /**
@@ -239,6 +386,7 @@ export async function startServer() {
     console.log(`\n🚀 [Fastify Server] Webhook API seguro escuchando en: ${address}`);
     console.log(`   📍 Endpoint Apify Event Webhook: POST http://0.0.0.0:${env.API_PORT}/webhooks/apify/leads`);
     console.log(`   📍 Endpoint Apify Social Webhook: POST http://0.0.0.0:${env.API_PORT}/webhooks/apify/social`);
+    console.log(`   📍 Endpoint Apify Social Seed Webhook: POST http://0.0.0.0:${env.API_PORT}/webhooks/apify/social-seed`);
     console.log(`   🔑 Header o Query Param de autenticación: x-webhook-secret / ?secret=${env.WEBHOOK_SECRET_TOKEN}\n`);
 
     // Inicializar Cronjob de vaciado de búfer de perfiles sociales cada 10 minutos
