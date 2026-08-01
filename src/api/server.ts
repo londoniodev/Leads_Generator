@@ -92,16 +92,19 @@ export async function setupApp() {
    * Responde HTTP 202 Inmediatamente y procesa el dataset de forma asíncrona en segundo plano.
    */
   app.post('/webhooks/apify/leads', async (request, reply) => {
-    // 1. Validar Token de Autenticación (Header x-webhook-secret o Authorization: Bearer <token>)
+    // 1. Validar Token de Autenticación (Header x-webhook-secret, Authorization: Bearer, o Query param secret/token)
     const customSecretHeader = request.headers['x-webhook-secret'];
     const authHeader = request.headers['authorization'];
+    const querySecret = (request.query as any)?.secret || (request.query as any)?.token || (request.query as any)?.['x-webhook-secret'];
 
     let providedToken: string | undefined = undefined;
 
-    if (typeof customSecretHeader === 'string') {
+    if (typeof customSecretHeader === 'string' && customSecretHeader.trim()) {
       providedToken = customSecretHeader.trim();
-    } else if (typeof authHeader === 'string') {
+    } else if (typeof authHeader === 'string' && authHeader.trim()) {
       providedToken = authHeader.replace(/^Bearer\s+/i, '').trim();
+    } else if (typeof querySecret === 'string' && querySecret.trim()) {
+      providedToken = querySecret.trim();
     }
 
     if (!providedToken || providedToken !== env.WEBHOOK_SECRET_TOKEN) {
@@ -146,7 +149,7 @@ export async function startServer() {
     });
     console.log(`\n🚀 [Fastify Server] Webhook API seguro escuchando en: ${address}`);
     console.log(`   📍 Endpoint Apify Event Webhook: POST http://0.0.0.0:${env.API_PORT}/webhooks/apify/leads`);
-    console.log(`   🔑 Header de autenticación requerido: x-webhook-secret: ${env.WEBHOOK_SECRET_TOKEN}\n`);
+    console.log(`   🔑 Header o Query Param de autenticación: x-webhook-secret / ?secret=${env.WEBHOOK_SECRET_TOKEN}\n`);
   } catch (err) {
     app.log.error(err);
     process.exit(1);
