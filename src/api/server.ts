@@ -153,7 +153,8 @@ export async function startServer() {
   }
 }
 
-// Iniciar servidor si es el script principal
-if (require.main === module) {
-  startServer();
-}
+// Iniciar servidor incondicionalmente para evitar salida inmediata con exit status 0
+startServer().catch((err) => {
+  console.error('❌ Error fatal al iniciar el servidor Fastify:', err);
+  process.exit(1);
+});

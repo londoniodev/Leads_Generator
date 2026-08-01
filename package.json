@@ -5,15 +5,14 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
-    "db:up": "docker compose up -d",
-    "db:down": "docker compose down",
     "db:push": "prisma db push",
-    "db:studio": "prisma studio",
-    "crawl": "tsx src/cli/run-website-crawler.ts",
-    "enqueue": "tsx src/cli/run-queue-producer.ts",
-    "worker": "tsx src/queue/lead.worker.ts",
-    "api:start": "tsx src/api/server.ts",
-    "test:pipeline": "tsx src/cli/test-pipeline.ts"
+    "crawl": "node dist/cli/run-website-crawler.js",
+    "enqueue": "node dist/cli/run-queue-producer.js",
+    "worker": "node dist/queue/lead.worker.js",
+    "api:start": "node dist/api/server.js",
+    "dev:api": "tsx src/api/server.ts",
+    "dev:worker": "tsx src/queue/lead.worker.ts",
+    "test:pipeline": "node dist/cli/test-pipeline.js"
   },
   "keywords": [],
   "author": "",
@@ -21,7 +20,7 @@
   "dependencies": {
     "@fastify/cors": "^10.0.2",
     "@prisma/client": "^5.21.1",
-    "apify-client": "^2.24.0",
+    "apify-client": "^2.11.2",
     "bullmq": "^5.41.6",
     "cheerio": "^1.0.0",
     "crawlee": "^3.12.0",
