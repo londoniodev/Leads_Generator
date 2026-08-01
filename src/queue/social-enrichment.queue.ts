@@ -1,18 +1,22 @@
 import { Queue, Worker, Job } from 'bullmq';
 import { redisConnection } from './lead.queue.js';
 import { ExtractedSocial } from '../utils/social.util.js';
+import { BatchBufferService } from '../services/batch-buffer.service.js';
+
+export interface SocialEnrichmentProfileItem {
+  leadId: string;
+  username: string;
+  url: string;
+}
 
 export interface SocialEnrichmentBatchData {
   batchId: string;
   platform: 'INSTAGRAM' | 'TIKTOK' | 'LINKEDIN';
-  profiles: Array<{
-    leadId: string;
-    username: string;
-    url: string;
-  }>;
+  profiles: SocialEnrichmentProfileItem[];
 }
 
 export const SOCIAL_ENRICHMENT_QUEUE_NAME = 'social_enrichment_queue';
+export const BATCH_TARGET_SIZE = 50;
 
 /**
  * Instancia de la cola BullMQ conectada a Redis para el enriquecimiento multicanal en lotes.
@@ -77,15 +81,27 @@ export async function enqueueSocialEnrichment(
 }
 
 /**
- * Worker para procesar lotes de enriquecimiento de perfiles sociales.
+ * Worker para procesar perfiles sociales y acumularlos en el búfer de Redis hasta completar 50 elementos.
  */
 export const socialEnrichmentWorker = new Worker<SocialEnrichmentBatchData>(
   SOCIAL_ENRICHMENT_QUEUE_NAME,
   async (job: Job<SocialEnrichmentBatchData>) => {
-    console.log(`\n[Social Enrichment Worker] 🚀 Procesando lote de perfiles sociales... (Batch ID: ${job.data.batchId}, Plataforma: ${job.data.platform}, Items: ${job.data.profiles.length})`);
-    
-    for (const item of job.data.profiles) {
-      console.log(`   └─ Lead ID: ${item.leadId} | Handle: @${item.username} | URL: ${item.url}`);
+    const { platform, profiles } = job.data;
+    console.log(`\n[Social Enrichment Worker] ⚙️ Recibido elemento para búfer de ${platform}... (Lead ID: ${profiles[0]?.leadId}, Handle: @${profiles[0]?.username})`);
+
+    for (const profileItem of profiles) {
+      // 1. Acumular en el búfer atómico de Redis
+      const readyBatch = await BatchBufferService.addToBatch<SocialEnrichmentProfileItem>(
+        platform,
+        profileItem,
+        BATCH_TARGET_SIZE
+      );
+
+      // 2. Si el búfer acumuló 50 perfiles, se activa el lote completo para disparar Apify
+      if (readyBatch && readyBatch.length >= BATCH_TARGET_SIZE) {
+        console.log(`\n🔥 [BATCH READY] Disparando Apify para ${platform} con ${readyBatch.length} perfiles acumulados!`);
+        console.log(`   └─ Primer handle: @${readyBatch[0]?.username} | Último handle: @${readyBatch[readyBatch.length - 1]?.username}\n`);
+      }
     }
   },
   {
@@ -95,9 +111,9 @@ export const socialEnrichmentWorker = new Worker<SocialEnrichmentBatchData>(
 );
 
 socialEnrichmentWorker.on('completed', (job) => {
-  console.log(`[Social Enrichment Worker] ✅ Lote #${job.id} procesado exitosamente.`);
+  console.log(`[Social Enrichment Worker] ✅ Elemento #${job.id} procesado en búfer.`);
 });
 
 socialEnrichmentWorker.on('failed', (job, err) => {
-  console.error(`[Social Enrichment Worker] ❌ Error procesando lote #${job?.id}:`, err.message);
+  console.error(`[Social Enrichment Worker] ❌ Error procesando elemento #${job?.id}:`, err.message);
 });
