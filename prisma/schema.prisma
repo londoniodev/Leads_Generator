@@ -12,12 +12,14 @@ model Lead {
   leadHash       String          @unique // Hash determinista md5(website | phoneE164)
   companyName    String
   niche          String
+  source         String          @default("GOOGLE_MAPS")
   city           String?
   country        String?
   address        String?
   website        String?         // NO usar @unique
   phoneE164      String?         
   primaryEmail   String?
+  placeId        String?
   rating         Float?
   reviewsCount   Int?
   googleCategory String?
