@@ -3,6 +3,7 @@ import { redisConnection, LEAD_EXTRACTION_QUEUE_NAME } from './lead.queue.js';
 import { RawLeadData, LeadCleanerService } from '../services/lead-cleaner.service.js';
 import { LeadDbService } from '../services/lead-db.service.js';
 import { WebsiteEnricherCrawler } from '../crawlers/website-enricher.crawler.js';
+import { enqueueSocialEnrichment } from './social-enrichment.queue.js';
 import prisma from '../config/database.js';
 
 /**
@@ -35,6 +36,13 @@ export const leadWorker = new Worker<RawLeadData>(
     console.log(`   Hash:      ${savedLead.leadHash}`);
     console.log(`   Phone:     ${savedLead.phoneE164 || 'N/A'}`);
     console.log(`   Score:     ${savedLead.score}/100`);
+
+    // 4. Encolamiento concurrente (Promise.all) de perfiles sociales a social_enrichment_queue
+    if (cleanedData.socialProfiles && cleanedData.socialProfiles.length > 0) {
+      enqueueSocialEnrichment(savedLead.id, cleanedData.socialProfiles).catch((err) => {
+        console.error(`[Worker Job #${job.id}] Error encolando perfiles sociales:`, err.message);
+      });
+    }
 
     return {
       leadId: savedLead.id,
