@@ -4,7 +4,7 @@
   "description": "B2B Lead Extraction, Cleaning, and Data Pipeline CLI & Webhook API",
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc",
+    "build": "prisma generate && tsc",
     "db:push": "prisma db push --accept-data-loss",
     "crawl": "tsx src/cli/run-website-crawler.ts",
     "enqueue": "tsx src/cli/run-queue-producer.ts",
