@@ -39,16 +39,26 @@ model SocialProfile {
   bio         String?
   emailInBio  String?
   verified    Boolean  @default(false)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([leadId, platform])
+  @@index([platform, username])
 }
 
 model ContactPerson {
-  id       String  @id @default(uuid())
-  leadId   String
-  lead     Lead    @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  name     String?
-  role     String? 
-  email    String?
-  phone    String?
+  id          String   @id @default(uuid())
+  leadId      String
+  lead        Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  name        String?
+  role        String? 
+  email       String?
+  phone       String?
+  linkedinUrl String?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 enum Platform {

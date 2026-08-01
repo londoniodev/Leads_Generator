@@ -1,0 +1,286 @@
+{
+  "communities": {
+    "0": [
+      "apify_client",
+      "bullmq",
+      "cheerio",
+      "crawlee",
+      "dotenv",
+      "fastify",
+      "fastify_cors",
+      "ioredis",
+      "libphonenumber_js",
+      "package_dependencies",
+      "package_dependencies_apify_client",
+      "package_dependencies_bullmq",
+      "package_dependencies_cheerio",
+      "package_dependencies_crawlee",
+      "package_dependencies_dotenv",
+      "package_dependencies_fastify",
+      "package_dependencies_fastify_cors",
+      "package_dependencies_ioredis",
+      "package_dependencies_libphonenumber_js",
+      "package_dependencies_playwright",
+      "package_dependencies_prisma_client",
+      "package_dependencies_tsx",
+      "package_dependencies_zod",
+      "playwright",
+      "prisma_client",
+      "tsx",
+      "zod"
+    ],
+    "1": [
+      "src_cli_test_pipeline",
+      "src_cli_test_pipeline_testpipeline",
+      "src_crawlers_website_enricher_crawler",
+      "src_crawlers_website_enricher_crawler_scrapedwebsitedata",
+      "src_crawlers_website_enricher_crawler_websiteenrichercrawler",
+      "src_crawlers_website_enricher_crawler_websiteenrichercrawler_extractdatafromhtml",
+      "src_services_lead_cleaner_service",
+      "src_services_lead_cleaner_service_cleanedleaddata",
+      "src_services_lead_cleaner_service_cleanleaddata",
+      "src_services_lead_cleaner_service_generateleadhash",
+      "src_services_lead_cleaner_service_non_official_website_domains",
+      "src_services_lead_cleaner_service_normalizewebsiteurl",
+      "src_services_lead_db_service_leaddbservice_saveorupdatelead",
+      "src_utils_email_util",
+      "src_utils_email_util_extractemails",
+      "src_utils_email_util_ignored_domains_or_ext",
+      "src_utils_email_util_sanitizeemail",
+      "src_utils_phone_util",
+      "src_utils_phone_util_normalizephonee164",
+      "src_utils_social_util",
+      "src_utils_social_util_extractedsocial",
+      "src_utils_social_util_extractsocialprofiles",
+      "src_utils_social_util_parsesocialurl"
+    ],
+    "2": [
+      "src_api_server",
+      "src_api_server_apifyclient",
+      "src_api_server_app",
+      "src_api_server_processapifydatasetinbackground",
+      "src_api_server_setupapp",
+      "src_api_server_startserver",
+      "src_cli_run_queue_producer",
+      "src_cli_run_queue_producer_main",
+      "src_config_env_config",
+      "src_config_env_config_env",
+      "src_config_env_config_envschema",
+      "src_config_env_config_numericarrayschema",
+      "src_queue_lead_queue",
+      "src_queue_lead_queue_enqueueleads",
+      "src_queue_lead_queue_leadextractionqueue",
+      "src_queue_lead_queue_redisconnection",
+      "src_services_lead_cleaner_service_rawleaddata"
+    ],
+    "3": [
+      "ref_es2022",
+      "ref_src",
+      "tsconfig",
+      "tsconfig_compileroptions",
+      "tsconfig_compileroptions_esmoduleinterop",
+      "tsconfig_compileroptions_forceconsistentcasinginfilenames",
+      "tsconfig_compileroptions_lib",
+      "tsconfig_compileroptions_module",
+      "tsconfig_compileroptions_moduleresolution",
+      "tsconfig_compileroptions_outdir",
+      "tsconfig_compileroptions_resolvejsonmodule",
+      "tsconfig_compileroptions_rootdir",
+      "tsconfig_compileroptions_skiplibcheck",
+      "tsconfig_compileroptions_strict",
+      "tsconfig_compileroptions_target",
+      "tsconfig_include"
+    ],
+    "4": [
+      "package",
+      "package_author",
+      "package_description",
+      "package_devdependencies",
+      "package_devdependencies_prisma",
+      "package_devdependencies_types_node",
+      "package_devdependencies_typescript",
+      "package_keywords",
+      "package_license",
+      "package_main",
+      "package_name",
+      "package_version",
+      "prisma",
+      "types_node",
+      "typescript"
+    ],
+    "5": [
+      "src_cli_run_website_crawler",
+      "src_cli_run_website_crawler_bootstrap",
+      "src_config_database",
+      "src_config_database_prisma",
+      "src_crawlers_website_enricher_crawler_websiteenrichercrawler_enrichwebsites",
+      "src_queue_lead_worker",
+      "src_queue_lead_worker_leadworker",
+      "src_services_lead_cleaner_service_leadcleanerservice",
+      "src_services_lead_cleaner_service_leadcleanerservice_prepareleaddata",
+      "src_services_lead_db_service",
+      "src_services_lead_db_service_leaddbservice",
+      "src_services_lead_db_service_saveorupdatelead"
+    ],
+    "6": [
+      "package_scripts",
+      "package_scripts_api_start",
+      "package_scripts_build",
+      "package_scripts_crawl",
+      "package_scripts_db_push",
+      "package_scripts_enqueue",
+      "package_scripts_test_pipeline",
+      "package_scripts_worker"
+    ]
+  },
+  "cohesion": {
+    "0": 0.07407407407407407,
+    "1": 0.22924901185770752,
+    "2": 0.19852941176470587,
+    "3": 0.125,
+    "4": 0.13333333333333333,
+    "5": 0.30303030303030304,
+    "6": 0.25
+  },
+  "gods": [
+    {
+      "id": "tsconfig_compileroptions",
+      "label": "compilerOptions",
+      "degree": 12
+    },
+    {
+      "id": "src_services_lead_cleaner_service_cleanleaddata",
+      "label": "cleanLeadData()",
+      "degree": 9
+    },
+    {
+      "id": "package_scripts",
+      "label": "scripts",
+      "degree": 8
+    },
+    {
+      "id": "src_utils_social_util_extractedsocial",
+      "label": "ExtractedSocial",
+      "degree": 8
+    },
+    {
+      "id": "src_utils_social_util_extractsocialprofiles",
+      "label": "extractSocialProfiles()",
+      "degree": 8
+    },
+    {
+      "id": "src_services_lead_cleaner_service_rawleaddata",
+      "label": "RawLeadData",
+      "degree": 7
+    },
+    {
+      "id": "src_utils_email_util_extractemails",
+      "label": "extractEmails()",
+      "degree": 7
+    },
+    {
+      "id": "src_cli_test_pipeline_testpipeline",
+      "label": "testPipeline()",
+      "degree": 6
+    },
+    {
+      "id": "src_config_database_prisma",
+      "label": "prisma",
+      "degree": 5
+    },
+    {
+      "id": "src_crawlers_website_enricher_crawler_websiteenrichercrawler",
+      "label": "WebsiteEnricherCrawler",
+      "degree": 5
+    }
+  ],
+  "surprises": [
+    {
+      "source": "main()",
+      "target": "enqueueLeads()",
+      "source_files": [
+        "src/cli/run-queue-producer.ts",
+        "src/queue/lead.queue.ts"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "calls",
+      "why": "peripheral node `main()` unexpectedly reaches hub `enqueueLeads()`"
+    },
+    {
+      "source": "ScrapedWebsiteData",
+      "target": "ExtractedSocial",
+      "source_files": [
+        "src/crawlers/website-enricher.crawler.ts",
+        "src/utils/social.util.ts"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "references",
+      "why": "peripheral node `ScrapedWebsiteData` unexpectedly reaches hub `ExtractedSocial`"
+    },
+    {
+      "source": "RawLeadData",
+      "target": "ExtractedSocial",
+      "source_files": [
+        "src/services/lead-cleaner.service.ts",
+        "src/utils/social.util.ts"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "references",
+      "why": "bridges separate communities"
+    },
+    {
+      "source": "processApifyDatasetInBackground()",
+      "target": "enqueueLeads()",
+      "source_files": [
+        "src/api/server.ts",
+        "src/queue/lead.queue.ts"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "calls",
+      "why": "cross-file semantic connection"
+    },
+    {
+      "source": "testPipeline()",
+      "target": "cleanLeadData()",
+      "source_files": [
+        "src/cli/test-pipeline.ts",
+        "src/services/lead-cleaner.service.ts"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "calls",
+      "why": "cross-file semantic connection"
+    }
+  ],
+  "questions": [
+    {
+      "type": "bridge_node",
+      "question": "Why does `dependencies` connect `dependencies` to `package.json`?",
+      "why": "High betweenness centrality (0.134) - this node is a cross-community bridge."
+    },
+    {
+      "type": "bridge_node",
+      "question": "Why does `scripts` connect `scripts` to `package.json`?",
+      "why": "High betweenness centrality (0.046) - this node is a cross-community bridge."
+    },
+    {
+      "type": "isolated_nodes",
+      "question": "What connects `name`, `version`, `description` to the rest of the system?",
+      "why": "48 weakly-connected nodes found - possible documentation gaps or missing edges."
+    },
+    {
+      "type": "low_cohesion",
+      "question": "Should `dependencies` be split into smaller, more focused modules?",
+      "why": "Cohesion score 0.07407407407407407 - nodes in this community are weakly interconnected."
+    },
+    {
+      "type": "low_cohesion",
+      "question": "Should `compilerOptions` be split into smaller, more focused modules?",
+      "why": "Cohesion score 0.125 - nodes in this community are weakly interconnected."
+    },
+    {
+      "type": "low_cohesion",
+      "question": "Should `package.json` be split into smaller, more focused modules?",
+      "why": "Cohesion score 0.13333333333333333 - nodes in this community are weakly interconnected."
+    }
+  ]
+}
