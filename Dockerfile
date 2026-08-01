@@ -18,3 +18,9 @@ RUN npx prisma generate
 
 # Compilar código TypeScript a JavaScript
 RUN npm run build
+
+# Exponer el puerto del API por defecto
+EXPOSE 3000
+
+# Comando por defecto para iniciar el servidor Webhook API
+CMD ["npm", "run", "api:start"]
