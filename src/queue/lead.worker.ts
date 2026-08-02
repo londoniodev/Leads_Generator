@@ -4,6 +4,8 @@ import { RawLeadData, LeadCleanerService } from '../services/lead-cleaner.servic
 import { LeadDbService } from '../services/lead-db.service.js';
 import { WebsiteEnricherCrawler } from '../crawlers/website-enricher.crawler.js';
 import { enqueueSocialEnrichment } from './social-enrichment.queue.js';
+import { deepScrapingWorker } from './deep-scraping.worker.js';
+import { DeepScraperService } from '../services/deep-scraper.service.js';
 import prisma from '../config/database.js';
 
 /**
@@ -67,10 +69,12 @@ leadWorker.on('failed', (job, err) => {
 
 // Manejo de Cierre Limpio
 process.on('SIGINT', async () => {
-  console.log('\n🔌 Cerrando Worker y conexiones de BullMQ/Prisma...');
+  console.log('\n🔌 Cerrando Workers y conexiones de BullMQ/Playwright/Prisma...');
   await leadWorker.close();
+  await deepScrapingWorker.close();
+  await DeepScraperService.closeBrowser();
   await prisma.$disconnect();
   process.exit(0);
 });
 
-console.log(`🚀 [Worker Engine] Escuchando trabajos en la cola "${LEAD_EXTRACTION_QUEUE_NAME}" (Concurrencia: 1)...`);
+console.log(`🚀 [Worker Engine] Escuchando trabajos en "${LEAD_EXTRACTION_QUEUE_NAME}" (Concurrencia: 1) y "deep_scraping_queue" (Concurrencia: 2)...`);
