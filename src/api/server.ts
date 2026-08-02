@@ -418,13 +418,14 @@ export async function setupApp() {
           const rawUrl = String(result.url || result.displayedUrl || '');
           if (!rawUrl) continue;
 
-          // 1. Coincidencia para Instagram
+          // 1. Coincidencia para Instagram (Regex estricto + Lista Negra)
           if (rawUrl.includes('instagram.com/')) {
             const match = rawUrl.match(/instagram\.com\/([a-zA-Z0-9_.]+)/i);
             if (match && match[1]) {
-              const username = match[1].toLowerCase().trim();
-              const invalidRoutes = ['p', 'reels', 'stories', 'explore', 'accounts', 'direct', 'tv', 'developer', 'about', 'legal', 'privacy', 'help'];
-              if (!invalidRoutes.includes(username)) {
+              const username = match[1].toLowerCase().trim().replace(/^\.+|\.+$/g, '');
+              const INSTAGRAM_BLACKLIST = ['p', 'reels', 'reel', 'explore', 'stories', 'tags', 'tv', 'ar', 'accounts', 'direct', 'developer', 'about', 'legal', 'privacy', 'help', 'directory', 'challenge', 'create', 'login', 'emails'];
+              
+              if (username && !INSTAGRAM_BLACKLIST.includes(username) && /^[a-zA-Z0-9_.]{1,30}$/.test(username)) {
                 await enqueueSerpSocialProfile('INSTAGRAM', username, `https://instagram.com/${username}`);
                 totalEnqueued++;
                 console.log(`   └─ 📸 Handle Instagram encolado en social_enrichment_queue: @${username}`);
@@ -432,14 +433,16 @@ export async function setupApp() {
             }
           }
 
-          // 2. Coincidencia para TikTok
-          if (rawUrl.includes('tiktok.com/')) {
-            const match = rawUrl.match(/tiktok\.com\/@([a-zA-Z0-9_.]+)/i);
+          // 2. Coincidencia para TikTok (Exige @ explícito y Regex estricto)
+          if (rawUrl.includes('tiktok.com/@')) {
+            const match = rawUrl.match(/tiktok\.com\/@([a-zA-Z0-9_.-]+)/i);
             if (match && match[1]) {
-              const username = match[1].toLowerCase().trim();
-              await enqueueSerpSocialProfile('TIKTOK', username, `https://tiktok.com/@${username}`);
-              totalEnqueued++;
-              console.log(`   └─ 🎵 Handle TikTok encolado en social_enrichment_queue: @${username}`);
+              const username = match[1].toLowerCase().trim().replace(/^\.+|\.+$/g, '');
+              if (username && /^[a-zA-Z0-9_.-]{1,30}$/.test(username)) {
+                await enqueueSerpSocialProfile('TIKTOK', username, `https://tiktok.com/@${username}`);
+                totalEnqueued++;
+                console.log(`   └─ 🎵 Handle TikTok encolado en social_enrichment_queue: @${username}`);
+              }
             }
           }
         }
