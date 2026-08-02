@@ -81,6 +81,39 @@ export async function enqueueSocialEnrichment(
 }
 
 /**
+ * Encola un perfil descubierto via SERP Bridge en la cola social_enrichment_queue.
+ */
+export async function enqueueSerpSocialProfile(
+  platform: 'INSTAGRAM' | 'TIKTOK',
+  username: string,
+  url: string
+) {
+  const cleanUsername = username.replace(/^@/, '').trim();
+  const seedLeadId = `serp_${Date.now()}_${cleanUsername}`;
+
+  return socialEnrichmentQueue.add(
+    `enrich-${platform.toLowerCase()}`,
+    {
+      batchId: `batch_${Date.now()}_${cleanUsername}`,
+      platform,
+      profiles: [
+        {
+          leadId: seedLeadId,
+          username: cleanUsername,
+          url,
+        },
+      ],
+    },
+    {
+      attempts: 3,
+      backoff: { type: 'exponential', delay: 3000 },
+      removeOnComplete: { count: 100 },
+      removeOnFail: { count: 500 },
+    }
+  );
+}
+
+/**
  * Worker para procesar perfiles sociales y acumularlos en el búfer de Redis hasta completar 50 elementos.
  */
 export const socialEnrichmentWorker = new Worker<SocialEnrichmentBatchData>(

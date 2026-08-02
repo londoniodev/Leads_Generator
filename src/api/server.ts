@@ -8,6 +8,7 @@ import { RawLeadData } from '../services/lead-cleaner.service.js';
 import { startCronScheduler } from '../services/cron.service.js';
 import { IdentityService } from '../services/identity.service.js';
 import { NormalizationService } from '../services/normalization.service.js';
+import { enqueueSerpSocialProfile } from '../queue/social-enrichment.queue.js';
 import { Platform } from '@prisma/client';
 
 export const app = Fastify({
@@ -371,6 +372,90 @@ export async function setupApp() {
       datasetId,
     });
   });
+
+  /**
+   * Webhook Puente SERP (SERP-to-Social) para extraer handles de Instagram/TikTok desde Google Search
+   * y encolarlos en social_enrichment_queue.
+   */
+  app.post('/webhooks/apify/serp-bridge', async (request, reply) => {
+    const customSecretHeader = request.headers['x-webhook-secret'];
+    const authHeader = request.headers['authorization'];
+    const querySecret = (request.query as any)?.secret || (request.query as any)?.token || (request.query as any)?.['x-webhook-secret'];
+
+    let providedToken: string | undefined = undefined;
+
+    if (typeof customSecretHeader === 'string' && customSecretHeader.trim()) {
+      providedToken = customSecretHeader.trim();
+    } else if (typeof authHeader === 'string' && authHeader.trim()) {
+      providedToken = authHeader.replace(/^Bearer\s+/i, '').trim();
+    } else if (typeof querySecret === 'string' && querySecret.trim()) {
+      providedToken = querySecret.trim();
+    }
+
+    if (!providedToken || providedToken !== env.WEBHOOK_SECRET_TOKEN) {
+      return reply.status(401).send({ error: 'No autorizado.' });
+    }
+
+    const body = (request.body || {}) as any;
+    const datasetId = body.resource?.defaultDatasetId || body.defaultDatasetId || body.eventData?.defaultDatasetId;
+
+    if (!datasetId || typeof datasetId !== 'string') {
+      return reply.status(400).send({ error: 'Payload de Apify inválido: falta defaultDatasetId.' });
+    }
+
+    (async () => {
+      console.log(`\n🔍 [SERP Bridge Webhook] Procesando dataset SERP ID: ${datasetId}...`);
+      const datasetClient = apifyClient.dataset(datasetId);
+      const itemsResponse = await datasetClient.listItems({ limit: 1000 });
+      const items = itemsResponse.items || [];
+
+      let totalEnqueued = 0;
+
+      for (const item of items) {
+        const organicResults = Array.isArray((item as any).organicResults) ? (item as any).organicResults : ((item as any).url ? [item] : []);
+
+        for (const result of organicResults) {
+          const rawUrl = String(result.url || result.displayedUrl || '');
+          if (!rawUrl) continue;
+
+          // 1. Coincidencia para Instagram
+          if (rawUrl.includes('instagram.com/')) {
+            const match = rawUrl.match(/instagram\.com\/([a-zA-Z0-9_.]+)/i);
+            if (match && match[1]) {
+              const username = match[1].toLowerCase().trim();
+              const invalidRoutes = ['p', 'reels', 'stories', 'explore', 'accounts', 'direct', 'tv', 'developer', 'about', 'legal', 'privacy', 'help'];
+              if (!invalidRoutes.includes(username)) {
+                await enqueueSerpSocialProfile('INSTAGRAM', username, `https://instagram.com/${username}`);
+                totalEnqueued++;
+                console.log(`   └─ 📸 Handle Instagram encolado en social_enrichment_queue: @${username}`);
+              }
+            }
+          }
+
+          // 2. Coincidencia para TikTok
+          if (rawUrl.includes('tiktok.com/')) {
+            const match = rawUrl.match(/tiktok\.com\/@([a-zA-Z0-9_.]+)/i);
+            if (match && match[1]) {
+              const username = match[1].toLowerCase().trim();
+              await enqueueSerpSocialProfile('TIKTOK', username, `https://tiktok.com/@${username}`);
+              totalEnqueued++;
+              console.log(`   └─ 🎵 Handle TikTok encolado en social_enrichment_queue: @${username}`);
+            }
+          }
+        }
+      }
+
+      console.log(`🎉 [SERP Bridge Webhook] ${totalEnqueued} handles extraídos de SERP y encolados en social_enrichment_queue.\n`);
+    })().catch((err) => {
+      console.error('❌ Error en segundo plano en SERP Bridge Webhook:', err);
+    });
+
+    return reply.status(202).send({
+      success: true,
+      message: 'Procesamiento SERP-to-Social iniciado en segundo plano.',
+      datasetId,
+    });
+  });
 }
 
 /**
@@ -387,6 +472,7 @@ export async function startServer() {
     console.log(`   📍 Endpoint Apify Event Webhook: POST http://0.0.0.0:${env.API_PORT}/webhooks/apify/leads`);
     console.log(`   📍 Endpoint Apify Social Webhook: POST http://0.0.0.0:${env.API_PORT}/webhooks/apify/social`);
     console.log(`   📍 Endpoint Apify Social Seed Webhook: POST http://0.0.0.0:${env.API_PORT}/webhooks/apify/social-seed`);
+    console.log(`   📍 Endpoint Apify SERP Bridge Webhook: POST http://0.0.0.0:${env.API_PORT}/webhooks/apify/serp-bridge`);
     console.log(`   🔑 Header o Query Param de autenticación: x-webhook-secret / ?secret=${env.WEBHOOK_SECRET_TOKEN}\n`);
 
     // Inicializar Cronjob de vaciado de búfer de perfiles sociales cada 10 minutos
