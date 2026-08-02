@@ -29,6 +29,7 @@ export interface CleanedLeadData {
   address: string | null;
   website: string | null;
   phoneE164: string | null;
+  rawPhone: string | null;
   primaryEmail: string | null;
   rating: number | null;
   reviewsCount: number | null;
@@ -39,11 +40,11 @@ export interface CleanedLeadData {
 }
 
 /**
- * Función pura que genera un Hash MD5 determinista a partir del website y teléfono E.164.
+ * Función pura que genera un Hash MD5 determinista a partir del website y teléfono E.164 o rawPhone.
  */
-export function generateLeadHash(website: string | null, phoneE164: string | null): string {
+export function generateLeadHash(website: string | null, phoneE164: string | null, rawPhone?: string | null): string {
   const cleanWebsite = (website || '').trim().toLowerCase();
-  const cleanPhone = (phoneE164 || '').trim();
+  const cleanPhone = (phoneE164 || rawPhone || '').trim();
   const rawString = `${cleanWebsite}|${cleanPhone}`;
   return createHash('md5').update(rawString).digest('hex');
 }
@@ -95,6 +96,7 @@ export function normalizeWebsiteUrl(rawUrl?: string | null): string | null {
 
 /**
  * Limpia y normaliza la información de un Lead crudo generando su leadHash determinista.
+ * Guarda el teléfono raw original devuelto por Apify en rawPhone si la validación E.164 falla.
  */
 export function cleanLeadData(raw: RawLeadData): CleanedLeadData {
   const companyName = raw.companyName.trim();
@@ -104,16 +106,17 @@ export function cleanLeadData(raw: RawLeadData): CleanedLeadData {
   const address = raw.address?.trim() || null;
   
   const website = normalizeWebsiteUrl(raw.website);
-  const phoneE164 = normalizePhoneE164(raw.phone);
+  const rawPhoneString = raw.phone?.trim() || null;
+  const phoneE164 = normalizePhoneE164(raw.phone, 'CO');
   const primaryEmail = sanitizeEmail(raw.primaryEmail);
   const rating = typeof raw.rating === 'number' ? raw.rating : null;
   const reviewsCount = typeof raw.reviewsCount === 'number' ? raw.reviewsCount : null;
   const googleCategory = raw.googleCategory?.trim() || null;
 
   // Generar Hash Determinista
-  const leadHash = generateLeadHash(website || raw.website || companyName, phoneE164);
+  const leadHash = generateLeadHash(website || raw.website || companyName, phoneE164, rawPhoneString);
 
-  // Extraer perfiles sociales de todas las URLs (incluyendo raw.website si era un link de Instagram/Facebook)
+  // Extraer perfiles sociales de todas las URLs
   const allUrls = [...(raw.foundUrls || [])];
   if (raw.website) allUrls.push(raw.website);
   
@@ -130,14 +133,14 @@ export function cleanLeadData(raw: RawLeadData): CleanedLeadData {
   let score = 0;
   if (companyName) score += 10;
   if (website) score += 20;
-  if (phoneE164) score += 25;
+  if (phoneE164 || rawPhoneString) score += 25;
   if (primaryEmail) score += 25;
   if (rating && rating >= 4.0) score += 10;
   score += Math.min(socialProfiles.length * 10, 10);
 
   // Determinar status inicial
   let status: LeadStatus = LeadStatus.NEW;
-  if (primaryEmail || phoneE164) {
+  if (primaryEmail || phoneE164 || rawPhoneString) {
     status = LeadStatus.ENRICHED;
   }
 
@@ -150,6 +153,7 @@ export function cleanLeadData(raw: RawLeadData): CleanedLeadData {
     address,
     website,
     phoneE164,
+    rawPhone: rawPhoneString,
     primaryEmail,
     rating,
     reviewsCount,

@@ -3,11 +3,12 @@ import env from '../config/env.config.js';
 
 /**
  * Normaliza cualquier número de teléfono al formato internacional E.164 (ej: +573001234567).
- * Retorna null si el teléfono no es válido.
+ * Forzado a usar 'CO' como país por defecto si no detecta código internacional.
+ * Retorna null si la validación E.164 falla.
  */
 export function normalizePhoneE164(
   rawPhone: string | null | undefined,
-  defaultCountry: CountryCode = env.DEFAULT_REGION_CODE as CountryCode
+  defaultCountry: CountryCode = 'CO'
 ): string | null {
   if (!rawPhone) return null;
 
@@ -17,8 +18,10 @@ export function normalizePhoneE164(
     return null;
   }
 
+  const countryToUse: CountryCode = (defaultCountry || env.DEFAULT_REGION_CODE || 'CO').toUpperCase() as CountryCode;
+
   try {
-    const phoneNumber = parsePhoneNumberWithError(rawPhone, defaultCountry);
+    const phoneNumber = parsePhoneNumberWithError(rawPhone, countryToUse);
     if (phoneNumber && phoneNumber.isValid()) {
       return phoneNumber.format('E.164');
     }

@@ -6,7 +6,7 @@ import { CleanedLeadData } from './lead-cleaner.service.js';
  * Guarda o actualiza un Lead utilizando el leadHash determinista con Prisma upsert.
  */
 export async function saveOrUpdateLead(cleanedData: CleanedLeadData): Promise<Lead> {
-  const { leadHash, website, phoneE164, socialProfiles, ...leadBase } = cleanedData;
+  const { leadHash, website, phoneE164, rawPhone, socialProfiles, ...leadBase } = cleanedData;
 
   // Realizar Upsert atómico por leadHash
   const lead = await prisma.lead.upsert({
@@ -19,6 +19,7 @@ export async function saveOrUpdateLead(cleanedData: CleanedLeadData): Promise<Le
       address: leadBase.address,
       website,
       phoneE164,
+      rawPhone,
       primaryEmail: leadBase.primaryEmail,
       rating: leadBase.rating,
       reviewsCount: leadBase.reviewsCount,
@@ -35,6 +36,7 @@ export async function saveOrUpdateLead(cleanedData: CleanedLeadData): Promise<Le
       address: leadBase.address,
       website,
       phoneE164,
+      rawPhone,
       primaryEmail: leadBase.primaryEmail,
       rating: leadBase.rating,
       reviewsCount: leadBase.reviewsCount,

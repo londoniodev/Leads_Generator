@@ -5,6 +5,7 @@ import { Platform } from '@prisma/client';
 export class IdentityService {
   /**
    * Extrae y normaliza un número de teléfono E.164 desde un texto de biografía social.
+   * Forzado a usar 'CO' como país por defecto si no detecta código internacional.
    */
   public static extractAndNormalizePhone(
     bioText: string,
@@ -18,11 +19,13 @@ export class IdentityService {
 
     if (!matches || matches.length === 0) return null;
 
+    const countryCode: CountryCode = (defaultCountry || 'CO').toUpperCase() as CountryCode;
+
     for (const rawCandidate of matches) {
       try {
         const parsed = parsePhoneNumberFromString(
           rawCandidate.trim(),
-          defaultCountry.toUpperCase() as CountryCode
+          countryCode
         );
         if (parsed && parsed.isValid()) {
           return parsed.number; // Retorna formato E.164 (ej: +573104739592)
@@ -199,7 +202,7 @@ export class IdentityService {
       let score = 0;
       if (lead.companyName) score += 10;
       if (lead.website) score += 20;
-      if (lead.phoneE164) score += 25;
+      if (lead.phoneE164 || lead.rawPhone) score += 25;
       if (lead.primaryEmail || emailInBio) score += 25;
       score += Math.min(lead.socialProfiles.length * 10, 20);
 

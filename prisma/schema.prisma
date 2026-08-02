@@ -18,6 +18,7 @@ model Lead {
   address        String?
   website        String?         // NO usar @unique
   phoneE164      String?         
+  rawPhone       String?
   primaryEmail   String?
   placeId        String?
   rating         Float?
